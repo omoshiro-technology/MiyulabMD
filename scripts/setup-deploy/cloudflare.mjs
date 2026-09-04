@@ -129,6 +129,13 @@ export async function listR2Buckets(token, accountId) {
   return buckets;
 }
 
+export function isR2NotEnabled(error) {
+  return (
+    (error.errors ?? []).some((item) => item.code === 10042) ||
+    /enable R2/i.test(error.message ?? "")
+  );
+}
+
 export async function ensureR2(token, accountId, name) {
   const buckets = await listR2Buckets(token, accountId);
   const existing = buckets.find((item) => item.name === name);
