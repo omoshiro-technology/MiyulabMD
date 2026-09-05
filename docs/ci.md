@@ -1,6 +1,6 @@
 # GitHub Actions CI セットアップ
 
-このリポジトリの CI は 4 本。Lint / Test はシークレット不要。本番デプロイと週次アップグレードだけ GitHub / Cloudflare 側の設定が要る。
+このリポジトリの CI は 4 本。Lint / Test / ライセンス検査はシークレット不要。本番デプロイと週次アップグレードだけ GitHub / Cloudflare 側の設定が要る。
 
 | ワークフロー | ファイル | 起動 | シークレット |
 |---|---|---|---|
@@ -17,9 +17,12 @@ Actions が有効ならそのまま動く。ローカルと同じコマンド。
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm check    # Biome
+pnpm check            # Biome
+pnpm licenses:check   # 本番依存の SPDX 許可リスト
 pnpm test
 ```
+
+`licenses:check` は Test ワークフローでも走る。許可 SPDX と禁止パッケージは [docs/licenses.md](licenses.md)。
 
 ## 2. Cloudflare デプロイ
 

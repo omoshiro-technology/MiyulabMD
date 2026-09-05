@@ -56,3 +56,13 @@ pnpm setup:deploy
 ```
 
 `wrangler login` でブラウザ認証し、セットアップ用の一時トークンを取得する。詳細は [docs/ci.md](docs/ci.md)。`main` への merge で Worker（本体 + og-fetch）をデプロイする。
+
+## ライセンス
+
+Copyright (C) 2026 Naoki Fujisawa (WakuwakuP)
+
+GNU Affero General Public License v3.0 or later。[LICENSE](LICENSE) を参照。方針は [docs/licenses.md](docs/licenses.md)、第三者の帰属は [THIRD_PARTY.md](THIRD_PARTY.md)。
+
+ホストした改変版は、ネットワーク利用者へ対応するソースを提供すること（AGPL §13）。公式ソースは <https://github.com/WakuwakuP/MiyulabMD>。製品名・ロゴ・キャラクターは公式としての再利用を許可しない。
+
+本番依存のライセンスは `pnpm licenses:check` で検証する。

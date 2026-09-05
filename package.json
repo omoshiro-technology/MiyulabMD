@@ -1,6 +1,7 @@
 {
   "name": "miyulabmd",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "packageManager": "pnpm@10.14.0",
   "scripts": {
     "dev": "pnpm --filter @miyulabmd/web dev",
@@ -10,7 +11,8 @@
     "check": "biome check .",
     "check:fix": "biome check --write .",
     "setup:deploy": "node scripts/setup-deploy.mjs",
-    "test": "pnpm -r --if-present test && node --test scripts/setup-deploy/*.test.mjs",
+    "licenses:check": "node scripts/check-licenses.mjs",
+    "test": "pnpm -r --if-present test && node --test scripts/setup-deploy/*.test.mjs scripts/check-licenses/*.test.mjs",
     "typecheck": "pnpm -r typecheck",
     "storybook": "pnpm --filter @miyulabmd/web storybook"
   },
