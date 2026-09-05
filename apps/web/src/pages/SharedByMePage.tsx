@@ -1,7 +1,12 @@
 import type { FolderAccess, NoteSummary } from "@miyulabmd/shared";
 import { folderUrl } from "@miyulabmd/shared";
 import { type MouseEvent, useCallback, useEffect, useState } from "react";
-import { useNavigate, useOutletContext } from "react-router";
+import {
+  Link,
+  useNavigate,
+  useOutletContext,
+  useSearchParams,
+} from "react-router";
 import type { AppShellContext } from "../components/layout/AppShellContext.ts";
 import type { AccessDraft } from "../components/notes/AccessPanel.tsx";
 import { AccessScopeMeta } from "../components/notes/AccessScopeMeta.tsx";
@@ -25,13 +30,9 @@ import {
   invalidateFolderCache,
   invalidateNotesCache,
   loadNotes,
-  prefetchFolder,
 } from "../lib/list-cache.ts";
 import { invalidateNoteCache, prefetchNote } from "../lib/note-cache.ts";
-import {
-  filterSharedByMeFolders,
-  filterSharedByMeNotes,
-} from "../lib/shared-by-me.ts";
+import { sharedByMeItems } from "../lib/shared-by-me.ts";
 
 function draftFromFolder(folder: FolderAccess): AccessDraft {
   return {
@@ -64,6 +65,10 @@ type MenuState = {
 
 export function SharedByMePage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const folderId = searchParams.get("folder");
+  const sharedFolderUrl = (id: string | null) =>
+    id ? `/shared-by-me?folder=${encodeURIComponent(id)}` : "/shared-by-me";
   const { user, userLoading, setHeader } = useOutletContext<AppShellContext>();
   const [notes, setNotes] = useState<NoteSummary[]>([]);
   const [folders, setFolders] = useState<FolderAccess[]>([]);
@@ -92,7 +97,7 @@ export function SharedByMePage() {
           fetchFolderTree(),
         ]);
         if (signal?.aborted) return;
-        setNotes(filterSharedByMeNotes(noteList, user.id));
+        setNotes(noteList);
         if (!folderTree.ok) throw new Error(folderTree.error);
         const results = await Promise.all(
           folderTree.data.map((entry) => fetchFolder(entry.id)),
@@ -103,7 +108,7 @@ export function SharedByMePage() {
           if (result.ok) nextFolders.push(result.data);
           else setError(result.error);
         }
-        setFolders(filterSharedByMeFolders(nextFolders));
+        setFolders(nextFolders);
       } catch (cause) {
         if (!signal?.aborted) {
           setError(
@@ -153,7 +158,7 @@ export function SharedByMePage() {
     event.stopPropagation();
     const position = menuPosition(event);
     const items: ContextMenuItem[] = [
-      { label: "開く", onSelect: () => navigate(folderUrl(folder.id)) },
+      { label: "開く", onSelect: () => navigate(sharedFolderUrl(folder.id)) },
       { label: "共有設定", onSelect: () => void openFolderShare(folderId) },
     ];
     setMenu({ id: folderId, ...position, items });
@@ -280,7 +285,9 @@ export function SharedByMePage() {
         ? `${window.location.origin}/n/${share.id}`
         : "";
 
-  const empty = folders.length === 0 && notes.length === 0;
+  const visible = sharedByMeItems(folders, notes, user?.id ?? "", folderId);
+  const currentFolder = folders.find((folder) => folder.id === folderId);
+  const empty = visible.folders.length === 0 && visible.notes.length === 0;
   if (!user) return null;
 
   return (
@@ -288,6 +295,26 @@ export function SharedByMePage() {
       <p className="mb-3 text-sm text-muted">
         自分が共有しているアイテムです。各アイテムのメニューから共有設定を変更できます。
       </p>
+      {folderId && (
+        <nav
+          aria-label="共有済みの階層"
+          className="mb-3 flex flex-wrap items-center gap-2 text-sm"
+        >
+          <Link to="/shared-by-me">共有済み</Link>
+          {currentFolder?.crumbs
+            .filter((crumb) =>
+              folders.some(
+                (folder) => folder.id === crumb.id && !folder.locked,
+              ),
+            )
+            .map((crumb) => (
+              <span key={crumb.id}>
+                {" / "}
+                <Link to={sharedFolderUrl(crumb.id)}>{crumb.name}</Link>
+              </span>
+            ))}
+        </nav>
+      )}
       {error && <ErrorText>{error}</ErrorText>}
       {empty && !pending ? (
         <p>共有しているアイテムはありません。</p>
@@ -297,13 +324,13 @@ export function SharedByMePage() {
             pending ? "opacity-60 transition-opacity duration-150" : undefined
           }
         >
-          {folders
+          {visible.folders
             .slice()
             .sort((a, b) => a.name.localeCompare(b.name, "ja"))
             .map((folder) => (
               <DriveRow
                 key={folder.id}
-                href={folderUrl(folder.id)}
+                href={sharedFolderUrl(folder.id)}
                 name={folder.name}
                 icon={<FolderIcon />}
                 meta={
@@ -314,10 +341,9 @@ export function SharedByMePage() {
                 }
                 menuOpen={menu?.id === folder.id}
                 onMenu={(event) => openFolderMenu(event, folder)}
-                onPointerEnter={() => prefetchFolder(folder.id)}
               />
             ))}
-          {notes
+          {visible.notes
             .slice()
             .sort((a, b) => b.updatedAt - a.updatedAt)
             .map((note) => (
