@@ -143,6 +143,24 @@ export async function fetchFolderTree(): Promise<ApiResult<FolderRecord[]>> {
   return { ok: true, data: body.folders };
 }
 
+export async function fetchPublicFolders(): Promise<ApiResult<FolderRecord[]>> {
+  const res = await fetch("/api/folders/public", fetchOpts);
+  if (!res.ok) {
+    return { ok: false, status: res.status, error: await parseError(res) };
+  }
+  const body = (await res.json()) as { folders: FolderRecord[] };
+  return { ok: true, data: body.folders };
+}
+
+export async function fetchSharedFolders(): Promise<ApiResult<FolderRecord[]>> {
+  const res = await fetch("/api/folders/shared", fetchOpts);
+  if (!res.ok) {
+    return { ok: false, status: res.status, error: await parseError(res) };
+  }
+  const body = (await res.json()) as { folders: FolderRecord[] };
+  return { ok: true, data: body.folders };
+}
+
 export async function createFolder(input: {
   name: string;
   parentId?: string | null;

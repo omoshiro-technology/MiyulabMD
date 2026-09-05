@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 80,
+  "tabWidth": 2,
+  "useTabs": false,
+  "semi": true,
+  "singleQuote": false,
+  "jsxSingleQuote": false,
+  "trailingComma": "all",
+  "arrowParens": "always",
+  "endOfLine": "lf",
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/.wrangler/**",
+    "**/coverage/**",
+    "**/storybook-static/**",
+    "**/pnpm-lock.yaml",
+    "**/worker-configuration.d.ts",
+    ".github/cursor/render-package-upgrade-table.mjs"
+  ]
+}

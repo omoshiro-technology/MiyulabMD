@@ -2,12 +2,12 @@
 
 このリポジトリの CI は 4 本。Lint / Test / ライセンス検査はシークレット不要。本番デプロイと週次アップグレードだけ GitHub / Cloudflare 側の設定が要る。
 
-| ワークフロー | ファイル | 起動 | シークレット |
-|---|---|---|---|
-| Lint & Format | `.github/workflows/linter.yml` | `main` への push / PR | なし |
-| Test | `.github/workflows/test.yml` | `main` への push / PR | なし |
-| Deploy to Cloudflare | `.github/workflows/deploy-cloudflare.yml` | `apps/**` などの変更、または手動 | Environment `cloudflare-production` |
-| Cursor Weekly Package Upgrade | `.github/workflows/cursor-weekly-package-upgrade.yml` | 日曜 22:53 UTC、または手動 | リポジトリシークレット |
+| ワークフロー                  | ファイル                                              | 起動                             | シークレット                        |
+| ----------------------------- | ----------------------------------------------------- | -------------------------------- | ----------------------------------- |
+| Lint & Format & TypeCheck     | `.github/workflows/linter.yml`                        | `main` への push / PR            | なし                                |
+| Test                          | `.github/workflows/test.yml`                          | `main` への push / PR            | なし                                |
+| Deploy to Cloudflare          | `.github/workflows/deploy-cloudflare.yml`             | `apps/**` などの変更、または手動 | Environment `cloudflare-production` |
+| Cursor Weekly Package Upgrade | `.github/workflows/cursor-weekly-package-upgrade.yml` | 日曜 22:53 UTC、または手動       | リポジトリシークレット              |
 
 ランナーは Ubuntu、Node.js 24、pnpm（`packageManager` と lockfile）。インストールは `pnpm install --frozen-lockfile`。
 
@@ -17,12 +17,23 @@ Actions が有効ならそのまま動く。ローカルと同じコマンド。
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm check            # Biome
+pnpm check            # Oxlint + Oxfmt（チェックのみ）
+pnpm typecheck        # 全パッケージの TypeScript 型チェック
 pnpm licenses:check   # 本番依存の SPDX 許可リスト
 pnpm test
 ```
 
 `licenses:check` は Test ワークフローでも走る。許可 SPDX と禁止パッケージは [docs/licenses.md](licenses.md)。
+
+Lint & Format & TypeCheck は `pnpm lint`（Oxlint）、`pnpm format:check`
+（Oxfmt）、`pnpm typecheck` を順に実行する。Test はライセンス検査とテストを実行する。
+自動修正は `pnpm check:fix`、整形のみなら `pnpm format`。
+設定は `.oxlintrc.json` / `.oxfmtrc.json`。生成物とロックファイルは整形対象から除外する。
+
+Oxlint の correctness ルールはエラー扱い。移行で新たに検出される React Compiler
+関連（`set-state-in-effect` / `refs` / `immutability`）、非対話要素のイベント、
+文字列の startsWith / endsWith 推奨と、従来から警告だったフック依存は警告として残す。
+既存のアクセシビリティ例外は対応するルールへ引き継ぐ。移行に無関係なUI動作の変更は行わない。
 
 ## 2. Cloudflare デプロイ
 
@@ -63,29 +74,29 @@ og-fetch はカスタムドメインの same-zone `fetch` を避ける分離 Wor
 
 このリポジトリでは Environment の Secrets / Variables に置いている。`wrangler.toml` はプレースホルダのまま共有する。デプロイジョブが Variables から `wrangler.deploy.toml` を生成する。
 
-| 種類 | 名前 | 用途 |
-|---|---|---|
-| Secret | `CLOUDFLARE_API_TOKEN` | wrangler の認証 |
-| Secret | `CLOUDFLARE_ACCOUNT_ID` | 対象アカウント |
-| Variable | `D1_DATABASE_ID` | リモート D1（必須） |
-| Variable | `ACCESS_TEAM_DOMAIN` | Zero Trust チームドメイン |
-| Variable | `D1_DATABASE_NAME` | 任意。未設定なら `wrangler.toml` の名前 |
-| Variable | `WORKER_NAME` | 任意。未設定なら `miyulabmd` |
-| Variable | `OG_FETCH_WORKER_NAME` | 任意。未設定なら `miyulabmd-og-fetch` |
-| Variable | `R2_BUCKET_NAME` | 任意。未設定なら `miyulabmd-images` |
-| Variable | `CUSTOM_HOSTNAME` | 任意。カスタムドメイン |
+| 種類     | 名前                    | 用途                                    |
+| -------- | ----------------------- | --------------------------------------- |
+| Secret   | `CLOUDFLARE_API_TOKEN`  | wrangler の認証                         |
+| Secret   | `CLOUDFLARE_ACCOUNT_ID` | 対象アカウント                          |
+| Variable | `D1_DATABASE_ID`        | リモート D1（必須）                     |
+| Variable | `ACCESS_TEAM_DOMAIN`    | Zero Trust チームドメイン               |
+| Variable | `D1_DATABASE_NAME`      | 任意。未設定なら `wrangler.toml` の名前 |
+| Variable | `WORKER_NAME`           | 任意。未設定なら `miyulabmd`            |
+| Variable | `OG_FETCH_WORKER_NAME`  | 任意。未設定なら `miyulabmd-og-fetch`   |
+| Variable | `R2_BUCKET_NAME`        | 任意。未設定なら `miyulabmd-images`     |
+| Variable | `CUSTOM_HOSTNAME`       | 任意。カスタムドメイン                  |
 
 ### 2.2 Cloudflare API トークン
 
 [API Tokens](https://dash.cloudflare.com/profile/api-tokens) で Custom token を作る。
 
-| 権限 | アクセス |
-|---|---|
-| Account · Workers Scripts | Edit |
-| Account · D1 | Edit |
-| Account · Workers R2 Storage | Edit |
-| Account · Account Settings | Read |
-| Zone · Workers Routes | Edit（カスタムドメインを使う場合） |
+| 権限                         | アクセス                           |
+| ---------------------------- | ---------------------------------- |
+| Account · Workers Scripts    | Edit                               |
+| Account · D1                 | Edit                               |
+| Account · Workers R2 Storage | Edit                               |
+| Account · Account Settings   | Read                               |
+| Zone · Workers Routes        | Edit（カスタムドメインを使う場合） |
 
 Account Resources はこのアプリのアカウントに制限する。Zone Resources は `md.miyulab.dev` を載せるゾーンに制限する。
 
@@ -118,11 +129,11 @@ Account ID はダッシュボード右側、または `wrangler whoami`。
 
 **Settings → Secrets and variables → Actions**
 
-| 種類 | 名前 | 必須 | 用途 |
-|---|---|---|---|
-| Secret | `CURSOR_API_KEY` | 必須 | Cursor CLI |
-| Secret | `GH_AW_GITHUB_TOKEN` | 任意 | bot PR から後続 workflow を起動する PAT |
-| Variable | `CURSOR_AGENT_MODEL` | 任意 | Cursor のモデル ID |
+| 種類     | 名前                 | 必須 | 用途                                    |
+| -------- | -------------------- | ---- | --------------------------------------- |
+| Secret   | `CURSOR_API_KEY`     | 必須 | Cursor CLI                              |
+| Secret   | `GH_AW_GITHUB_TOKEN` | 任意 | bot PR から後続 workflow を起動する PAT |
+| Variable | `CURSOR_AGENT_MODEL` | 任意 | Cursor のモデル ID                      |
 
 `GH_AW_GITHUB_TOKEN` が無いと、作った PR で Lint / Test / Deploy の verify が動かないことがある（`GITHUB_TOKEN` で作った PR は同じリポジトリの workflow を起動しない）。
 
@@ -143,12 +154,12 @@ Account ID はダッシュボード右側、または `wrangler whoami`。
 
 ## 4. このリポジトリで設定済みのもの
 
-| 場所 | 名前 |
-|---|---|
-| Environment `cloudflare-production` Secrets | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
+| 場所                                          | 名前                                               |
+| --------------------------------------------- | -------------------------------------------------- |
+| Environment `cloudflare-production` Secrets   | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`    |
 | Environment `cloudflare-production` Variables | `D1_DATABASE_ID`, `ACCESS_TEAM_DOMAIN`（ほか任意） |
-| Repository secrets | `CURSOR_API_KEY`, `GH_AW_GITHUB_TOKEN` |
-| Repository variables | `CURSOR_AGENT_MODEL` |
-| Labels | `dependencies`, `maintenance`, `automated` |
+| Repository secrets                            | `CURSOR_API_KEY`, `GH_AW_GITHUB_TOKEN`             |
+| Repository variables                          | `CURSOR_AGENT_MODEL`                               |
+| Labels                                        | `dependencies`, `maintenance`, `automated`         |
 
 フォークや別アカウントへ複製するときは `pnpm setup:deploy` で 1〜3 を同じ名前で入れ直す。ワークフロー YAML の変更は不要。

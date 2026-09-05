@@ -1,39 +1,12 @@
 {
   "editor.formatOnSave": true,
-  "[css]": {
+  "[javascript][javascriptreact][typescript][typescriptreact]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode",
     "editor.codeActionsOnSave": {
-      "source.fixAll.biome": "explicit"
-    },
-    "editor.defaultFormatter": "biomejs.biome"
+      "source.fixAll.oxc": "explicit"
+    }
   },
-  "[javascript]": {
-    "editor.codeActionsOnSave": {
-      "source.fixAll.biome": "explicit"
-    },
-    "editor.defaultFormatter": "biomejs.biome"
-  },
-  "[javascriptreact]": {
-    "editor.codeActionsOnSave": {
-      "source.fixAll.biome": "explicit"
-    },
-    "editor.defaultFormatter": "biomejs.biome"
-  },
-  "[json]": {
-    "editor.defaultFormatter": "biomejs.biome"
-  },
-  "[jsonc]": {
-    "editor.defaultFormatter": "biomejs.biome"
-  },
-  "[typescript]": {
-    "editor.codeActionsOnSave": {
-      "source.fixAll.biome": "explicit"
-    },
-    "editor.defaultFormatter": "biomejs.biome"
-  },
-  "[typescriptreact]": {
-    "editor.codeActionsOnSave": {
-      "source.fixAll.biome": "explicit"
-    },
-    "editor.defaultFormatter": "biomejs.biome"
+  "[css][json][jsonc][yaml][markdown]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
   }
 }

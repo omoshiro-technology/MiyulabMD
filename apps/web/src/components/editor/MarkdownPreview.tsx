@@ -110,7 +110,7 @@ export function MarkdownPreview({
   const article = (
     <article
       className={columnClass}
-      // biome-ignore lint/security/noDangerouslySetInnerHtml: rehype-sanitize 済み
+      // HTML は rehype-sanitize 済み。
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

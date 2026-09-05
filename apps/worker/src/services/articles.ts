@@ -111,6 +111,9 @@ async function resolveFolderPath(
     if (!rec || rec.owner_id !== ownerId) {
       return { error: "フォルダが見つかりません" };
     }
+    if (!rec.folder) {
+      return { error: "マイドライブは記事ソースにできません" };
+    }
     return { folder: rec.folder, folderId: rec.id };
   }
   if (input.folder === undefined) {
@@ -118,7 +121,7 @@ async function resolveFolderPath(
   }
   const folder = input.folder.trim().replace(/^\/+|\/+$/g, "");
   if (!folder) {
-    return { error: "ルートは記事ソースにできません" };
+    return { error: "マイドライブは記事ソースにできません" };
   }
   const folderId = await ensureFolderRow(env, ownerId, folder);
   return { folder, folderId };

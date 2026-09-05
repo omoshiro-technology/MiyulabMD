@@ -20,8 +20,8 @@ function teamIssuer(env: Env): string {
 export function isAccessConfigured(env: Env): boolean {
   return Boolean(
     env.ACCESS_AUD?.trim() &&
-      env.ACCESS_TEAM_DOMAIN &&
-      String(env.ACCESS_TEAM_DOMAIN) !== "example.cloudflareaccess.com",
+    env.ACCESS_TEAM_DOMAIN &&
+    String(env.ACCESS_TEAM_DOMAIN) !== "example.cloudflareaccess.com",
   );
 }
 

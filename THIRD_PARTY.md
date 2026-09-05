@@ -16,25 +16,25 @@ MiyulabMD 本体は [AGPL-3.0-or-later](LICENSE)。このファイルは、帰�
 
 NOTICE / ライセンス文言の保持が必要。
 
-| パッケージ | 用途 |
-|---|---|
+| パッケージ                                       | 用途                     |
+| ------------------------------------------------ | ------------------------ |
 | [fast-diff](https://github.com/jhchen/fast-diff) | 差分計算（web / worker） |
 
 ### BSD-3-Clause
 
 再配布時の帰属が必要。
 
-| パッケージ | 用途 |
-|---|---|
+| パッケージ                                                  | 用途                                                             |
+| ----------------------------------------------------------- | ---------------------------------------------------------------- |
 | [highlight.js](https://github.com/highlightjs/highlight.js) | コードハイライト（クライアント）。SSR は `rehype-highlight` 経由 |
 
 ### ISC
 
-| パッケージ | 用途 |
-|---|---|
-| [github-slugger](https://github.com/Flet/github-slugger) | 見出し slug |
-| [lucide-react](https://github.com/lucide-icons/lucide) | UI アイコン。一部は Feather（MIT, Cole Bemis）由来 |
-| [yaml](https://github.com/eemeli/yaml) | frontmatter |
+| パッケージ                                               | 用途                                               |
+| -------------------------------------------------------- | -------------------------------------------------- |
+| [github-slugger](https://github.com/Flet/github-slugger) | 見出し slug                                        |
+| [lucide-react](https://github.com/lucide-icons/lucide)   | UI アイコン。一部は Feather（MIT, Cole Bemis）由来 |
+| [yaml](https://github.com/eemeli/yaml)                   | frontmatter                                        |
 
 ### MIT
 
@@ -51,10 +51,10 @@ NOTICE / ライセンス文言の保持が必要。
 
 リポジトリにフォントファイルは置いていない。Google Fonts から読み込む。どちらも SIL Open Font License 1.1。セルフホストするときは OFL 全文と Reserved Font Name に従う。
 
-| フォント | ライセンス | 使い方 |
-|---|---|---|
-| [M PLUS 2](https://fonts.google.com/specimen/M+PLUS+2) | OFL-1.1 | 本文（`apps/web/index.html`） |
-| [IBM Plex Mono](https://fonts.google.com/specimen/IBM+Plex+Mono) | OFL-1.1 | 等幅（`--font-mono`） |
+| フォント                                                         | ライセンス | 使い方                        |
+| ---------------------------------------------------------------- | ---------- | ----------------------------- |
+| [M PLUS 2](https://fonts.google.com/specimen/M+PLUS+2)           | OFL-1.1    | 本文（`apps/web/index.html`） |
+| [IBM Plex Mono](https://fonts.google.com/specimen/IBM+Plex+Mono) | OFL-1.1    | 等幅（`--font-mono`）         |
 
 ## シンタックスハイライト色
 

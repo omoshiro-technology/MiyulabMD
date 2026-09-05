@@ -36,15 +36,25 @@ export type FolderHierarchyLevel = {
   selected: string;
 };
 
+function driveRootId(folders: FolderRecord[]): string | null {
+  return folders.find((folder) => folder.folder === "")?.id ?? null;
+}
+
+/** 記事ソースに選べるフォルダがあるか。マイドライブ自体は対象外。 */
+export function hasSelectableSourceFolders(folders: FolderRecord[]): boolean {
+  return folders.some((folder) => Boolean(folder.folder));
+}
+
 export function folderHierarchyLevels(
   folders: FolderRecord[],
   selectedPath: string,
 ): FolderHierarchyLevel[] {
   const chain = folderChain(folders, selectedPath);
-  const roots = childrenOf(folders, null);
+  const rootId = driveRootId(folders);
+  const roots = childrenOf(folders, rootId);
   const levels: FolderHierarchyLevel[] = [
     {
-      parentId: null,
+      parentId: rootId,
       parentPath: "",
       options: roots,
       selected: chain[0]?.folder ?? "",

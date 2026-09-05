@@ -42,3 +42,10 @@ export function folderUrl(folderId: string | null | undefined): string {
   if (!folderId) return "/";
   return `/f/${folderId}`;
 }
+
+export const MY_DRIVE_NAME = "マイドライブ";
+export const SHARED_PATH = "/shared";
+
+export function isDriveRootPath(folder: string | null | undefined): boolean {
+  return !folder;
+}

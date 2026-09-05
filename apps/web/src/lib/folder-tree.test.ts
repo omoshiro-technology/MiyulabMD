@@ -5,6 +5,7 @@ import {
   childrenOf,
   folderChain,
   folderHierarchyLevels,
+  hasSelectableSourceFolders,
 } from "./folder-tree.ts";
 
 function folder(
@@ -46,6 +47,40 @@ test("folderChain walks from the root to the selected path", () => {
     folderChain(tree, "missing/path").map((item) => item.id),
     [],
   );
+});
+
+test("hasSelectableSourceFolders ignores the drive root", () => {
+  assert.equal(hasSelectableSourceFolders([]), false);
+  assert.equal(
+    hasSelectableSourceFolders([folder("root", "マイドライブ", null, "")]),
+    false,
+  );
+  assert.equal(
+    hasSelectableSourceFolders([
+      folder("root", "マイドライブ", null, ""),
+      folder("work", "work", "root", "work"),
+    ]),
+    true,
+  );
+});
+
+test("folderHierarchyLevels skips the drive root and lists its children", () => {
+  const withRoot = [
+    folder("root", "マイドライブ", null, ""),
+    folder("work", "work", "root", "work"),
+    folder("play", "play", "root", "play"),
+    folder("infra", "infra", "work", "work/infra"),
+  ];
+  const empty = folderHierarchyLevels(withRoot, "");
+  assert.equal(empty[0]?.parentId, "root");
+  assert.deepEqual(
+    empty[0]?.options.map((item) => item.id),
+    ["play", "work"],
+  );
+
+  const mid = folderHierarchyLevels(withRoot, "work");
+  assert.equal(mid[0]?.selected, "work");
+  assert.equal(mid[1]?.parentId, "work");
 });
 
 test("folderHierarchyLevels adds a next select while children exist", () => {

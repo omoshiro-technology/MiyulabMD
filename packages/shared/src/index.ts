@@ -95,7 +95,10 @@ export {
 export {
   defaultNoteMarkdown,
   folderUrl,
+  isDriveRootPath,
+  MY_DRIVE_NAME,
   normalizeFolder,
+  SHARED_PATH,
   titleFromMarkdown,
 } from "./title.ts";
 export type { SessionUser, User } from "./user.ts";

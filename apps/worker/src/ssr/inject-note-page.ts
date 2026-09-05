@@ -46,5 +46,9 @@ export function notePageId(pathname: string): string | null {
 }
 
 export function isPublicGuestCacheable(note: Note, hasUser: boolean): boolean {
-  return !hasUser && note.access.effectiveReadScope === "public";
+  return (
+    !hasUser &&
+    (note.access.effectiveReadScope === "public" ||
+      note.access.effectiveReadScope === "link")
+  );
 }

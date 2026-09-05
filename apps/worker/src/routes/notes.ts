@@ -20,14 +20,11 @@ async function parseJsonBody<T>(request: Request): Promise<T | null> {
 const notes = createNoteService(env);
 
 export const noteRoutes = new Elysia({ prefix: "/api/notes" })
-  .get("/", async ({ request, set }) => {
+  .get("/", async ({ request }) => {
     const user = await readSession(request, env);
-    if (!user) {
-      set.status = 401;
-      return { error: "Unauthorized" };
-    }
-
-    const list = await notes.listForUser(user);
+    const list = user
+      ? await notes.listForUser(user)
+      : await notes.listForGuest();
     return { notes: list };
   })
   .post("/", async ({ request, set }) => {

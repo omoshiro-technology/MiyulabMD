@@ -1,13 +1,13 @@
 ALTER TABLE notes ADD COLUMN read_scope TEXT;
 ALTER TABLE notes ADD COLUMN write_scope TEXT;
 
-UPDATE notes SET read_scope = 'public', write_scope = 'public' WHERE permission = 'freely';
-UPDATE notes SET read_scope = 'public', write_scope = 'signed_in' WHERE permission = 'editable';
+UPDATE notes SET read_scope = 'link', write_scope = 'link' WHERE permission = 'freely';
+UPDATE notes SET read_scope = 'link', write_scope = 'signed_in' WHERE permission = 'editable';
 UPDATE notes SET read_scope = 'signed_in', write_scope = 'signed_in' WHERE permission = 'limited';
-UPDATE notes SET read_scope = 'public', write_scope = 'self' WHERE permission = 'locked';
+UPDATE notes SET read_scope = 'link', write_scope = 'self' WHERE permission = 'locked';
 UPDATE notes SET read_scope = 'signed_in', write_scope = 'self' WHERE permission = 'protected';
 UPDATE notes SET read_scope = 'self', write_scope = 'self' WHERE permission = 'private';
-UPDATE notes SET read_scope = 'public', write_scope = 'signed_in' WHERE read_scope IS NULL OR write_scope IS NULL;
+UPDATE notes SET read_scope = 'link', write_scope = 'signed_in' WHERE read_scope IS NULL OR write_scope IS NULL;
 
 CREATE TABLE folder_policies (
   owner_id TEXT NOT NULL,

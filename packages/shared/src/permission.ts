@@ -1,22 +1,31 @@
 /** 読み取り・書き込みそれぞれの公開範囲。 */
-export const ACCESS_SCOPES = ["public", "signed_in", "users", "self"] as const;
+export const ACCESS_SCOPES = [
+  "public",
+  "link",
+  "signed_in",
+  "users",
+  "self",
+] as const;
 export type AccessScope = (typeof ACCESS_SCOPES)[number];
 
 export const ACCESS_SCOPE_LABELS: Record<AccessScope, string> = {
-  public: "全体公開",
+  public: "公開",
+  link: "リンクを知っている全員",
   signed_in: "ログイン済みのみ",
   users: "指定ユーザーのみ",
   self: "自分のみ",
 };
 
 export const ACCESS_SCOPE_HINTS: Record<AccessScope, string> = {
-  public: "リンクを知っている全員がアクセスできます",
-  signed_in: "ログインしているユーザーがアクセスできます",
+  public: "誰でもアクセスでき、公開一覧にも表示されます",
+  link: "リンクを知っている全員がアクセスできます（公開一覧には表示されません）",
+  signed_in:
+    "リンクを知っているログイン済みユーザーがアクセスできます（公開一覧には表示されません）",
   users: "追加したユーザーだけがアクセスできます",
   self: "あなただけがアクセスできます",
 };
 
-/** ルートディレクトリの公開範囲。変更不可。 */
+/** マイドライブ（ユーザー root）の公開範囲。変更不可。 */
 export const ROOT_SCOPES = {
   readScope: "self",
   writeScope: "self",
@@ -24,6 +33,7 @@ export const ROOT_SCOPES = {
 
 const ACCESS_SCOPE_RANK: Record<AccessScope, number> = {
   public: 0,
+  link: 0,
   signed_in: 1,
   users: 2,
   self: 3,
@@ -97,13 +107,13 @@ export function scopesFromPreset(preset: PermissionPreset): {
 } {
   switch (preset) {
     case "freely":
-      return { readScope: "public", writeScope: "public" };
+      return { readScope: "link", writeScope: "link" };
     case "editable":
-      return { readScope: "public", writeScope: "signed_in" };
+      return { readScope: "link", writeScope: "signed_in" };
     case "limited":
       return { readScope: "signed_in", writeScope: "signed_in" };
     case "locked":
-      return { readScope: "public", writeScope: "self" };
+      return { readScope: "link", writeScope: "self" };
     case "protected":
       return { readScope: "signed_in", writeScope: "self" };
     case "private":
@@ -116,11 +126,13 @@ export function presetFromScopes(
   writeScope: AccessScope,
 ): PermissionPreset {
   const write = clampWriteScope(readScope, writeScope);
-  if (write === "public") return "freely";
+  if (write === "public" || write === "link") return "freely";
   if (write === "signed_in") {
-    return readScope === "public" ? "editable" : "limited";
+    return readScope === "public" || readScope === "link"
+      ? "editable"
+      : "limited";
   }
-  if (readScope === "public") return "locked";
+  if (readScope === "public" || readScope === "link") return "locked";
   if (readScope === "self") return "private";
   return "protected";
 }
@@ -161,7 +173,7 @@ function scopeAllows(
   needWrite: boolean,
 ): boolean {
   if (actor.kind === "owner") return true;
-  if (scope === "public") return true;
+  if (scope === "public" || scope === "link") return true;
   if (scope === "signed_in") return actor.kind === "signed_in";
   if (scope === "users") {
     if (!grant) return false;

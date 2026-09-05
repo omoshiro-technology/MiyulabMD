@@ -20,6 +20,7 @@ import {
   fetchFolderTree,
   updateArticleSource,
 } from "../../lib/api.ts";
+import { hasSelectableSourceFolders } from "../../lib/folder-tree.ts";
 
 type DraftField = ArticleSchemaField & { rowId: string };
 
@@ -208,6 +209,8 @@ export function SiteSettingsPage() {
     );
   }
 
+  const canPickSourceFolder = hasSelectableSourceFolders(folders);
+
   return (
     <section>
       <h2 className="m-0 text-[1.5em] font-bold">サイト設定</h2>
@@ -261,13 +264,13 @@ export function SiteSettingsPage() {
         <Button
           className="mt-4"
           variant="accent"
-          disabled={folders.length === 0}
+          disabled={!canPickSourceFolder}
           onClick={() => setDraft(emptyDraft())}
         >
           ソースを追加
         </Button>
       )}
-      {!draft && folders.length === 0 && (
+      {!draft && !canPickSourceFolder && (
         <MutedText className="mt-2">先にフォルダを作成してください。</MutedText>
       )}
 

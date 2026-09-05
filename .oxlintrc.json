@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react", "jsx-a11y", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "react/exhaustive-deps": "warn",
+    "react/set-state-in-effect": "warn",
+    "react/refs": "warn",
+    "react/immutability": "warn",
+    "unicorn/prefer-string-starts-ends-with": "warn",
+    "jsx-a11y/label-has-associated-control": "off",
+    "jsx-a11y/no-static-element-interactions": "off",
+    "jsx-a11y/no-noninteractive-element-interactions": "warn",
+    "jsx-a11y/prefer-tag-over-role": "off",
+    "jsx-a11y/aria-unsupported-elements": "off",
+    "jsx-a11y/click-events-have-key-events": "off"
+  },
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/.wrangler/**",
+    "**/coverage/**",
+    "**/storybook-static/**",
+    "**/worker-configuration.d.ts",
+    ".github/cursor/render-package-upgrade-table.mjs"
+  ]
+}

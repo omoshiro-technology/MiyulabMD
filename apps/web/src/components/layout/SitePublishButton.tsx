@@ -60,7 +60,8 @@ export function SitePublishButton({ user, folder }: Props) {
   if (!matched) return null;
 
   async function handleClick() {
-    const id = matched.id;
+    const id = matchedId;
+    if (!id) return;
     setBusy(true);
     setError(null);
     const result = await dispatchArticleSource(id);

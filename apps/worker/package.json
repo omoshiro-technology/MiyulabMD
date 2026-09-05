@@ -5,7 +5,7 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "predev": "mkdir -p ../web/dist",
+    "predev": "node -e \"require('node:fs').mkdirSync('../web/dist', { recursive: true })\"",
     "dev": "wrangler dev -c wrangler.toml -c wrangler.og-fetch.toml",
     "db:migrate": "wrangler d1 migrations apply DB --local",
     "deploy": "wrangler deploy -c wrangler.og-fetch.toml && wrangler deploy",

@@ -4,14 +4,14 @@
 
 ## 1. 概要
 
-| 項目 | 内容 |
-| --- | --- |
-| プロダクト名 | MiyulabMD |
-| 目的 | チーム内外で Markdown を同時編集し、ノート単位で公開範囲を制御する |
-| ホスト | Cloudflare Workers / Durable Objects / D1 / R2 / Access |
-| 編集モデル | Yjs CRDT（ノートごとに 1 Durable Object） |
-| 認証 | Cloudflare Zero Trust (Access) によるログイン |
-| 外部編集 | MCP（Model Context Protocol） |
+| 項目         | 内容                                                               |
+| ------------ | ------------------------------------------------------------------ |
+| プロダクト名 | MiyulabMD                                                          |
+| 目的         | チーム内外で Markdown を同時編集し、ノート単位で公開範囲を制御する |
+| ホスト       | Cloudflare Workers / Durable Objects / D1 / R2 / Access            |
+| 編集モデル   | Yjs CRDT（ノートごとに 1 Durable Object）                          |
+| 認証         | Cloudflare Zero Trust (Access) によるログイン                      |
+| 外部編集     | MCP（Model Context Protocol）                                      |
 
 ブラウザ・MCP クライアントは同じドメインサービスを通す。本文のソース・オブ・トゥルースは Durable Object 上の Yjs ドキュメント、一覧・権限・検索用のメタデータは D1、画像は R2 に置く。
 
@@ -61,32 +61,32 @@ flowchart LR
   DO -->|snapshot| D1
 ```
 
-| コンポーネント | 役割 |
-| --- | --- |
-| `apps/web` | React フロント。CodeMirror 6 + Yjs、プレビュー、権限 UI |
+| コンポーネント            | 役割                                                                          |
+| ------------------------- | ----------------------------------------------------------------------------- |
+| `apps/web`                | React フロント。CodeMirror 6 + Yjs、プレビュー、権限 UI                       |
 | Worker (`fetch` + Elysia) | 入口は `fetch` 分岐。REST / 認証 / MCP は Elysia。WS と Assets は公式ハンドラ |
-| `DocumentRoom` DO | ノート 1 件につき 1 インスタンス。Yjs 同期・awareness・永続化 |
-| D1 | ユーザー、ノートメタ、権限、招待、API トークン、Markdown スナップショット |
-| R2 | 貼付画像 |
-| Access | ログイン IdP。公開ノートの閲覧は Worker 側で許可判定する |
+| `DocumentRoom` DO         | ノート 1 件につき 1 インスタンス。Yjs 同期・awareness・永続化                 |
+| D1                        | ユーザー、ノートメタ、権限、招待、API トークン、Markdown スナップショット     |
+| R2                        | 貼付画像                                                                      |
+| Access                    | ログイン IdP。公開ノートの閲覧は Worker 側で許可判定する                      |
 
 ## 4. 技術選定
 
-| 層 | 選定 | 理由 |
-| --- | --- | --- |
-| ランタイム | Cloudflare Workers | 要件どおり。DO / D1 / R2 / Access と同一基盤 |
-| API | Elysia (`CloudflareAdapter`) | 実験用途として採用。スキーマと型推論が強い。Workers 対応は Experimental |
-| 共同編集 | Yjs + y-protocols | Markdown テキストの CRDT として実績がある |
-| 同期ハブ | Durable Objects + WebSocket Hibernation | ノート単位の一貫性。アイドル時は課金が小さい |
-| DO 永続化 | DO SQLite | hibernation / 再デプロイ後も Yjs 更新を保持できる |
-| メタデータ | D1 | 権限判定、一覧、MCP の読み取り元 |
-| 画像 | R2 | オブジェクトストレージ。Worker 経由で権限付き配信 |
-| 認証 | Cloudflare Access JWT | Zero Trust ログイン。アプリ側セッションに変換する |
-| フロント | React + Vite + TypeScript | エディタ周辺のエコシステムが広い |
-| エディタ | CodeMirror 6 (`@codemirror/lang-markdown`) | ソース共同編集と Yjs バインディングが明確 |
-| プレビュー | remark / rehype | サーバーとクライアントで同じ Markdown パイプラインにできる |
-| MCP | `agents` の `createMcpHandler` | MCP 2026-07-28 の stateless Streamable HTTP。DO セッション不要 |
-| パッケージ | pnpm workspaces | web / worker / shared の型を共有する |
+| 層         | 選定                                       | 理由                                                                    |
+| ---------- | ------------------------------------------ | ----------------------------------------------------------------------- |
+| ランタイム | Cloudflare Workers                         | 要件どおり。DO / D1 / R2 / Access と同一基盤                            |
+| API        | Elysia (`CloudflareAdapter`)               | 実験用途として採用。スキーマと型推論が強い。Workers 対応は Experimental |
+| 共同編集   | Yjs + y-protocols                          | Markdown テキストの CRDT として実績がある                               |
+| 同期ハブ   | Durable Objects + WebSocket Hibernation    | ノート単位の一貫性。アイドル時は課金が小さい                            |
+| DO 永続化  | DO SQLite                                  | hibernation / 再デプロイ後も Yjs 更新を保持できる                       |
+| メタデータ | D1                                         | 権限判定、一覧、MCP の読み取り元                                        |
+| 画像       | R2                                         | オブジェクトストレージ。Worker 経由で権限付き配信                       |
+| 認証       | Cloudflare Access JWT                      | Zero Trust ログイン。アプリ側セッションに変換する                       |
+| フロント   | React + Vite + TypeScript                  | エディタ周辺のエコシステムが広い                                        |
+| エディタ   | CodeMirror 6 (`@codemirror/lang-markdown`) | ソース共同編集と Yjs バインディングが明確                               |
+| プレビュー | remark / rehype                            | サーバーとクライアントで同じ Markdown パイプラインにできる              |
+| MCP        | `agents` の `createMcpHandler`             | MCP 2026-07-28 の stateless Streamable HTTP。DO セッション不要          |
+| パッケージ | pnpm workspaces                            | web / worker / shared の型を共有する                                    |
 
 本文の競合解消は CRDT に任せ、OT は採用しない。カーソルは Yjs awareness で同期する。初期は WebRTC は使わない。
 
@@ -101,7 +101,11 @@ export default {
     if (pathname.startsWith("/ws/notes/")) {
       return env.DOCUMENT_ROOM.get(id).fetch(request); // Hibernation は DO
     }
-    if (pathname.startsWith("/api/") || pathname.startsWith("/auth/") || pathname.startsWith("/mcp")) {
+    if (
+      pathname.startsWith("/api/") ||
+      pathname.startsWith("/auth/") ||
+      pathname.startsWith("/mcp")
+    ) {
       return api.fetch(request); // Elysia（REST / 認証 / MCP）
     }
     return env.ASSETS.fetch(request);
@@ -117,14 +121,14 @@ MCP は Elysia の `/mcp` に載せ、ルートから `createMcpHandler` に `Re
 
 CodiMD の 6 プリセットをそのまま採用する。変更できるのはノート所有者だけである。
 
-| プリセット | Owner R/W | ログイン済み Read | ログイン済み Write | Guest Read | Guest Write |
-| --- | --- | --- | --- | --- | --- |
-| `freely` | ✔ | ✔ | ✔ | ✔ | ✔ |
-| `editable` | ✔ | ✔ | ✔ | ✔ | ✖ |
-| `limited` | ✔ | ✔ | ✔ | ✖ | ✖ |
-| `locked` | ✔ | ✔ | ✖ | ✔ | ✖ |
-| `protected` | ✔ | ✔ | ✖ | ✖ | ✖ |
-| `private` | ✔ | ✖ | ✖ | ✖ | ✖ |
+| プリセット  | Owner R/W | ログイン済み Read | ログイン済み Write | Guest Read | Guest Write |
+| ----------- | --------- | ----------------- | ------------------ | ---------- | ----------- |
+| `freely`    | ✔         | ✔                 | ✔                  | ✔          | ✔           |
+| `editable`  | ✔         | ✔                 | ✔                  | ✔          | ✖           |
+| `limited`   | ✔         | ✔                 | ✔                  | ✖          | ✖           |
+| `locked`    | ✔         | ✔                 | ✖                  | ✔          | ✖           |
+| `protected` | ✔         | ✔                 | ✖                  | ✖          | ✖           |
+| `private`   | ✔         | ✖                 | ✖                  | ✖          | ✖           |
 
 内部表現はプリセットを分解したポリシーでも保持する。UI はプリセット名を出し、判定は次の関数に集約する。
 
@@ -140,12 +144,12 @@ function canAdmin(note: Note, actor: Actor): boolean; // 権限変更・削除�
 
 CodiMD の匿名設定に相当するフラグを Worker 環境変数で持つ。
 
-| 変数 | 初期値 | 意味 |
-| --- | --- | --- |
-| `ALLOW_ANONYMOUS` | `false` | ゲストがノートを新規作成できるか |
-| `ALLOW_ANONYMOUS_EDITS` | `true` | `freely` を選択可能にするか |
-| `ALLOW_ANONYMOUS_VIEWS` | `true` | ゲスト閲覧を許すプリセットを有効にするか |
-| `DEFAULT_PERMISSION` | `editable` | ログインユーザーが作るノートの初期プリセット |
+| 変数                    | 初期値     | 意味                                         |
+| ----------------------- | ---------- | -------------------------------------------- |
+| `ALLOW_ANONYMOUS`       | `false`    | ゲストがノートを新規作成できるか             |
+| `ALLOW_ANONYMOUS_EDITS` | `true`     | `freely` を選択可能にするか                  |
+| `ALLOW_ANONYMOUS_VIEWS` | `true`     | ゲスト閲覧を許すプリセットを有効にするか     |
+| `DEFAULT_PERMISSION`    | `editable` | ログインユーザーが作るノートの初期プリセット |
 
 `ALLOW_ANONYMOUS=false` かつ `ALLOW_ANONYMOUS_VIEWS=true` のとき、ゲストは既存ノートの閲覧（と設定次第で `freely` 編集）だけでき、新規作成はログイン必須。CodiMD 2.0 以降と同じ向きにする。
 
@@ -153,29 +157,36 @@ CodiMD の匿名設定に相当するフラグを Worker 環境変数で持つ�
 
 `private` / `protected` でも特定ユーザーを読者または編集者にできる。招待は Access の email と突き合わせる。
 
-| role | 効果 |
-| --- | --- |
-| `viewer` | プリセットが拒否しても閲覧可 |
+| role     | 効果                          |
+| -------- | ----------------------------- |
+| `viewer` | プリセットが拒否しても閲覧可  |
 | `editor` | 閲覧 + 編集可。権限変更は不可 |
 
 招待者はプリセット判定の前に評価する。owner は常に admin。
 
 ### 5.3 URL
 
-| 種別 | パス | 用途 |
-| --- | --- | --- |
-| 編集 | `/n/:id` | 編集 UI。権限がなければ 403 / ログイン誘導 |
-| 読み取り専用共有 | `/s/:id` | プレビューのみ。`canView` を満たせば Access 不要 |
-| 公開一覧 | `/explore` | `public` フラグ付き、かつゲストまたはログイン済みが読めるノート |
+| 種別             | パス       | 用途                                                            |
+| ---------------- | ---------- | --------------------------------------------------------------- |
+| 編集             | `/n/:id`   | 編集 UI。権限がなければ 403 / ログイン誘導                      |
+| 読み取り専用共有 | `/s/:id`   | プレビューのみ。`canView` を満たせば Access 不要                |
+| 公開一覧         | `/explore` | `public` フラグ付き、かつゲストまたはログイン済みが読めるノート |
 
 `id` は ULID。あわせて 8 文字の `short_id` を持ち、どちらでも解決する。任意の `alias`（オーナー配下で一意）も後から足せるようにスキーマを空けておく。
 
 公開「発見可能」と「リンクを知っていれば見られる」は分ける。
 
-- 一覧に出す: `listed = true`（`limited` 以上でゲスト閲覧可のノートに限る、など運用で制限）
-- リンク共有: `short_id` を知っていれば `canView` のみ
+- 横断的な一覧・検索（MCP を含む）: `canView` に加えて、所有者・実効閲覧範囲が
+  `public`・自分への明示共有（ノートまたは祖先フォルダの grant）のいずれかが必要。
+- `link` と `signed_in` はリンク限定。旧 `limited` / `protected` もログインだけでは
+  列挙しない。URLを指定した取得は従来どおり `canView` で判定する。
+- ノートの `folderId`、フォルダの `parentId` と祖先のパンくずにも同じ発見可能性を適用する。
+  公開された子からリンク限定の親のIDを逆引きできないようにする。
+- 既知のフォルダを開いたときは、その設定を継承した子を辿れる。
+  子で別途リンク限定に上書きされたものは、公開または明示共有がなければ列挙しない。
+- 共有先メールを含む `grants` は、非オーナー向けのノート・フォルダ応答には含めない。
 
-初期は CodiMD に寄せ、`listed` は使わずリンクを知っている人 + プリセットで制御する。Explore はフェーズ 2。
+`listed` カラムは使わず、実効閲覧範囲で発見可能性を区別する。Explore 専用画面はフェーズ 2。
 
 ## 6. 認証（Zero Trust）
 
@@ -323,20 +334,20 @@ CodiMD はアップロード画像を権限外に公開してしまう。Miyulab
 
 ### ツール
 
-| ツール | 権限 | 内容 |
-| --- | --- | --- |
-| `list_notes` | ログインユーザー | 自分が owner / collaborator のノート。任意で query |
-| `get_note` | `canView` | メタ + DO の最新 Markdown + heading outline。`AI(ユーザー名)` カーソルを出す |
-| `create_note` | ログインユーザー | title / content / permission |
-| `replace_in_note` | `canEdit` | 一意コンテキストの置換。複数ヒットは `replace_all` か失敗 |
-| `insert_in_note` | `canEdit` | `at` / `after` / `before` のいずれか 1 つで挿入 |
-| `update_note` | `canEdit` | Markdown 全置換（最終手段）。`applyTextDiff` 経由 |
-| `delete_note` | `canAdmin` | メタ・画像・DO 状態を削除 |
-| `set_note_access` | `canAdmin` | 公開範囲を変更 |
-| `invite_collaborator` | `canAdmin` | email + role |
-| `search_notes` | ログインユーザー | title / snapshot の部分一致 |
-| `agent_join` | `canView` | `AI(ユーザー名)` カーソルだけ出す |
-| `agent_leave` | `canView` | `AI(ユーザー名)` カーソルを消す |
+| ツール                | 権限             | 内容                                                                         |
+| --------------------- | ---------------- | ---------------------------------------------------------------------------- |
+| `list_notes`          | ログインユーザー | 自分が owner / collaborator のノート。任意で query                           |
+| `get_note`            | `canView`        | メタ + DO の最新 Markdown + heading outline。`AI(ユーザー名)` カーソルを出す |
+| `create_note`         | ログインユーザー | title / content / permission                                                 |
+| `replace_in_note`     | `canEdit`        | 一意コンテキストの置換。複数ヒットは `replace_all` か失敗                    |
+| `insert_in_note`      | `canEdit`        | `at` / `after` / `before` のいずれか 1 つで挿入                              |
+| `update_note`         | `canEdit`        | Markdown 全置換（最終手段）。`applyTextDiff` 経由                            |
+| `delete_note`         | `canAdmin`       | メタ・画像・DO 状態を削除                                                    |
+| `set_note_access`     | `canAdmin`       | 公開範囲を変更                                                               |
+| `invite_collaborator` | `canAdmin`       | email + role                                                                 |
+| `search_notes`        | ログインユーザー | title / snapshot の部分一致                                                  |
+| `agent_join`          | `canView`        | `AI(ユーザー名)` カーソルだけ出す                                            |
+| `agent_leave`         | `canView`        | `AI(ユーザー名)` カーソルを消す                                              |
 
 編集・`get_note` は DocumentRoom の合成 awareness に `AI(ユーザー名)` を載せる。名前は MCP トークン所有者の displayName（なければ email）。接続中のエディタは通常の共同編集者と同じ経路でカーソルを見る。スナップショットだけを D1 に書いて DO を迂回しない。オフセット直指定の API は出さない（同時編集ですぐ腐る）。
 
@@ -359,22 +370,22 @@ Cursor 側の設定例:
 
 すべて Worker。JSON。セッション Cookie または Bearer。
 
-| メソッド | パス | 権限 |
-| --- | --- | --- |
-| `GET` | `/auth/login` | 公開 |
-| `GET` | `/auth/callback` | Access JWT |
-| `POST` | `/auth/logout` | セッション |
-| `GET` | `/api/me` | セッション任意。未ログインは `{ user: null }` |
-| `GET` | `/api/notes` | ログイン |
-| `POST` | `/api/notes` | ログイン（または `ALLOW_ANONYMOUS`） |
-| `GET` | `/api/notes/:id` | `canView` |
-| `PATCH` | `/api/notes/:id` | メタは `canAdmin`、title は `canEdit` |
-| `DELETE` | `/api/notes/:id` | `canAdmin` |
-| `POST` | `/api/notes/:id/collaborators` | `canAdmin` |
-| `POST` | `/api/notes/:id/images` | `canEdit` |
-| `GET` | `/api/notes/:id/images/:imageId` | `canView` |
-| `GET` | `/ws/notes/:id` | `canView`（upgrade） |
-| `POST` | `/mcp` | Bearer |
+| メソッド | パス                             | 権限                                          |
+| -------- | -------------------------------- | --------------------------------------------- |
+| `GET`    | `/auth/login`                    | 公開                                          |
+| `GET`    | `/auth/callback`                 | Access JWT                                    |
+| `POST`   | `/auth/logout`                   | セッション                                    |
+| `GET`    | `/api/me`                        | セッション任意。未ログインは `{ user: null }` |
+| `GET`    | `/api/notes`                     | ログイン                                      |
+| `POST`   | `/api/notes`                     | ログイン（または `ALLOW_ANONYMOUS`）          |
+| `GET`    | `/api/notes/:id`                 | `canView`                                     |
+| `PATCH`  | `/api/notes/:id`                 | メタは `canAdmin`、title は `canEdit`         |
+| `DELETE` | `/api/notes/:id`                 | `canAdmin`                                    |
+| `POST`   | `/api/notes/:id/collaborators`   | `canAdmin`                                    |
+| `POST`   | `/api/notes/:id/images`          | `canEdit`                                     |
+| `GET`    | `/api/notes/:id/images/:imageId` | `canView`                                     |
+| `GET`    | `/ws/notes/:id`                  | `canView`（upgrade）                          |
+| `POST`   | `/mcp`                           | Bearer                                        |
 
 共有ページ `/s/:id` は HTML（Vite の SPA）を返し、クライアントが `GET /api/notes/:id` する。
 
@@ -461,14 +472,14 @@ Worker が `apps/web` のビルド成果を Assets として配信する。開�
 
 ## 16. フェーズ
 
-| フェーズ | 内容 |
-| --- | --- |
-| 0 | 本設計、リポジトリ骨格、共有型、D1 スキーマ |
-| 1 | Access ログイン、ノート CRUD、6 プリセット、単一ユーザー編集 |
-| 2 | DocumentRoom、Yjs、同時編集、awareness |
-| 3 | R2 画像ペースト、権限付き配信 |
-| 4 | MCP ツール、PAT |
-| 5 | 招待、alias、Explore、オフライン IndexedDB |
+| フェーズ | 内容                                                         |
+| -------- | ------------------------------------------------------------ |
+| 0        | 本設計、リポジトリ骨格、共有型、D1 スキーマ                  |
+| 1        | Access ログイン、ノート CRUD、6 プリセット、単一ユーザー編集 |
+| 2        | DocumentRoom、Yjs、同時編集、awareness                       |
+| 3        | R2 画像ペースト、権限付き配信                                |
+| 4        | MCP ツール、PAT                                              |
+| 5        | 招待、alias、Explore、オフライン IndexedDB                   |
 
 ## 17. 未決事項
 

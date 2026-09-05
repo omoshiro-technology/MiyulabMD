@@ -1,4 +1,4 @@
-name: Lint & Format
+name: Lint & Format & TypeCheck
 
 on:
   push:
@@ -41,5 +41,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run Biome
-        run: pnpm check
+      - name: Lint (Oxlint)
+        run: pnpm lint
+
+      - name: Format (Oxfmt)
+        run: pnpm format:check
+
+      - name: Typecheck
+        run: pnpm typecheck

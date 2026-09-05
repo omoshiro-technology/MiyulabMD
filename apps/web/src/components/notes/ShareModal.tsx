@@ -196,7 +196,11 @@ export function ShareModal({
         <SectionTitle>一般的なアクセス</SectionTitle>
         <div className="flex gap-3 rounded-[10px] border border-border bg-surface p-[0.85rem]">
           <span className="text-xl" aria-hidden>
-            {value.readScope === "public" ? "🔗" : "🔒"}
+            {value.readScope === "public"
+              ? "🌐"
+              : value.readScope === "link"
+                ? "🔗"
+                : "🔒"}
           </span>
           <div className="grid flex-1 gap-[0.45rem]">
             <label className="flex items-center justify-between gap-3">

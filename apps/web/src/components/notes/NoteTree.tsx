@@ -1,5 +1,5 @@
 import type { FolderCrumb, FolderRecord, NoteSummary } from "@miyulabmd/shared";
-import { folderUrl } from "@miyulabmd/shared";
+import { folderUrl, MY_DRIVE_NAME, SHARED_PATH } from "@miyulabmd/shared";
 import type { MouseEvent } from "react";
 import { Link } from "react-router";
 import { cn } from "../../lib/cn.ts";
@@ -16,6 +16,9 @@ type Props = {
   parentId: string | null;
   childrenFolders: FolderRecord[];
   showRootCrumb?: boolean;
+  isDriveRoot?: boolean;
+  showAllNotes?: boolean;
+  rootHref?: string;
   openMenuId?: string | null;
   pending?: boolean;
   placeholder?: boolean;
@@ -58,12 +61,17 @@ export function NoteTree({
   parentId,
   childrenFolders,
   showRootCrumb = false,
+  isDriveRoot = false,
+  showAllNotes = false,
+  rootHref = SHARED_PATH,
   openMenuId = null,
   pending = false,
   placeholder = false,
   onItemMenu,
 }: Props) {
-  const items = notesInFolder(notes, currentFolderId);
+  const items = showAllNotes
+    ? [...notes].sort((a, b) => b.updatedAt - a.updatedAt)
+    : notesInFolder(notes, currentFolderId);
   const folders = [...childrenFolders].sort((a, b) =>
     a.name.localeCompare(b.name, "ja"),
   );
@@ -85,11 +93,11 @@ export function NoteTree({
             to="/"
             className={cn(
               "border-0 bg-transparent p-0 font-inherit text-inherit no-underline",
-              !currentFolderId ? "cursor-default text-muted" : "cursor-pointer",
+              isDriveRoot ? "cursor-default text-muted" : "cursor-pointer",
             )}
             onPointerEnter={() => prefetchFolder()}
           >
-            ルート
+            {MY_DRIVE_NAME}
           </Link>
         )}
         {crumbs.map((crumb, index) => {
@@ -119,11 +127,13 @@ export function NoteTree({
         })}
       </nav>
 
-      {currentFolderId && (
+      {currentFolderId && !isDriveRoot && (
         <Link
           className="mb-3 block border-0 bg-transparent p-0 font-inherit text-accent no-underline"
-          to={folderUrl(parentId)}
-          onPointerEnter={() => prefetchFolder(parentId)}
+          to={parentId ? folderUrl(parentId) : rootHref}
+          onPointerEnter={() => {
+            if (parentId) prefetchFolder(parentId);
+          }}
         >
           上のフォルダへ
         </Link>

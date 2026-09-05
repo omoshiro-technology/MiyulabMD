@@ -1,9 +1,10 @@
 import { ACCESS_SCOPE_LABELS, type AccessScope } from "@miyulabmd/shared";
-import { Globe, Lock, UserPlus, Users } from "lucide-react";
+import { Globe, Link, Lock, UserPlus, Users } from "lucide-react";
 import { cn } from "../../lib/cn.ts";
 
 const SHORT_LABELS: Record<AccessScope, string> = {
   public: "公開",
+  link: "リンク",
   signed_in: "ログイン",
   users: "指定",
   self: "自分",
@@ -11,6 +12,7 @@ const SHORT_LABELS: Record<AccessScope, string> = {
 
 const SCOPE_ICONS: Record<AccessScope, typeof Globe> = {
   public: Globe,
+  link: Link,
   signed_in: Users,
   users: UserPlus,
   self: Lock,

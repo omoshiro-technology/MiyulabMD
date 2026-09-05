@@ -2,14 +2,17 @@
   "name": "miyulabmd",
   "private": true,
   "license": "AGPL-3.0-or-later",
-  "packageManager": "pnpm@10.14.0",
   "scripts": {
     "dev": "pnpm --filter @miyulabmd/web dev",
     "dev:worker": "pnpm --filter @miyulabmd/worker dev",
     "db:migrate": "pnpm --filter @miyulabmd/worker db:migrate",
     "build": "pnpm -r build",
-    "check": "biome check .",
-    "check:fix": "biome check --write .",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint --fix .",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "check": "pnpm lint && pnpm format:check",
+    "check:fix": "pnpm lint:fix && pnpm format",
     "setup:deploy": "node scripts/setup-deploy.mjs",
     "licenses:check": "node scripts/check-licenses.mjs",
     "test": "pnpm -r --if-present test && node --test scripts/setup-deploy/*.test.mjs scripts/check-licenses/*.test.mjs",
@@ -17,6 +20,8 @@
     "storybook": "pnpm --filter @miyulabmd/web storybook"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.11"
-  }
+    "oxfmt": "^0.66.0",
+    "oxlint": "^1.81.0"
+  },
+  "packageManager": "pnpm@10.14.0"
 }

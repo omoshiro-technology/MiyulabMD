@@ -14,10 +14,19 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
  */
 function readPnpmLicenseReport() {
   return new Promise((resolve, reject) => {
-    const child = spawn("pnpm", ["licenses", "list", "--prod", "--json"], {
-      cwd: ROOT,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const args = ["licenses", "list", "--prod", "--json"];
+    const shell = process.platform === "win32";
+    // Windows の pnpm.cmd はシェル経由で起動する。外部入力を含まない固定コマンド。
+    // shell:true に別途 args を渡さず、Node.js の DEP0190 も避ける。
+    const child = spawn(
+      shell ? `pnpm ${args.join(" ")}` : "pnpm",
+      shell ? [] : args,
+      {
+        cwd: ROOT,
+        stdio: ["ignore", "pipe", "pipe"],
+        shell,
+      },
+    );
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8");
