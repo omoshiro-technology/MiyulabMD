@@ -10,7 +10,7 @@
     "deploy": "wrangler deploy -c wrangler.og-fetch.toml && wrangler deploy",
     "predev": "node -e \"require('node:fs').mkdirSync('../web/dist', { recursive: true })\"",
     "dev": "node scripts/dev.mjs",
-    "test": "node --experimental-strip-types --test src/ssr/*.test.ts src/services/*.test.ts src/durable-objects/*.test.ts",
+    "test": "node --experimental-strip-types --test src/auth/*.test.ts src/ssr/*.test.ts src/services/*.test.ts src/durable-objects/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -2,6 +2,7 @@ import { Extension } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { youtubeId, youtubeStartSeconds } from "../../../lib/embeds.ts";
 import { standaloneLinkUrl } from "../../../lib/standalone-link.ts";
 
 const INVISIBLE = /\u200B|\u200C|\uFEFF/g;
@@ -87,12 +88,25 @@ export function expandOgCard(
   return tr.setSelection(TextSelection.create(tr.doc, from, to));
 }
 
+function embedNodeForHref(state: EditorState, href: string): PMNode | null {
+  if (youtubeId(href)) {
+    const youtube = state.schema.nodes.youtube;
+    if (youtube) {
+      return youtube.create({
+        src: href,
+        start: youtubeStartSeconds(href),
+      });
+    }
+  }
+  const ogType = state.schema.nodes.ogCard;
+  return ogType ? ogType.create({ href }) : null;
+}
+
 export function autoLinkCardTransaction(
   state: EditorState,
   includeSelection = false,
 ): Transaction | null {
-  const ogType = state.schema.nodes.ogCard;
-  if (!ogType) {
+  if (!(state.schema.nodes.ogCard || state.schema.nodes.youtube)) {
     return null;
   }
 
@@ -116,9 +130,13 @@ export function autoLinkCardTransaction(
 
   let tr = state.tr;
   for (const { from, to, href } of replacements.reverse()) {
-    tr = tr.replaceWith(from, to, ogType.create({ href }));
+    const embed = embedNodeForHref(state, href);
+    if (!embed) {
+      continue;
+    }
+    tr = tr.replaceWith(from, to, embed);
   }
-  return tr;
+  return tr.docChanged ? tr : null;
 }
 
 export const AutoLinkCard = Extension.create({
@@ -174,17 +192,13 @@ export const AutoLinkCard = Extension.create({
               return false;
             }
 
-            const ogType = view.state.schema.nodes.ogCard;
-            if (!ogType) {
+            const embed = embedNodeForHref(view.state, href);
+            if (!embed) {
               return false;
             }
             view.dispatch(
               view.state.tr
-                .replaceWith(
-                  $from.before(),
-                  $from.after(),
-                  ogType.create({ href }),
-                )
+                .replaceWith($from.before(), $from.after(), embed)
                 .setMeta("paste", true),
             );
             return true;

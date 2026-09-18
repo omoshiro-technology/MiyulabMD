@@ -3,6 +3,9 @@ import { jwtVerify, SignJWT } from "jose";
 
 const COOKIE_NAME = "miyulabmd_session";
 const SESSION_MAX_AGE_SEC = 60 * 60 * 24 * 7;
+// The API boundary and route handlers share one verification per Request.
+// Weak keys retain neither cookies nor sessions across requests.
+const sessions = new WeakMap<Request, Promise<SessionUser | null>>();
 
 function sessionSecret(env: Env): Uint8Array | null {
   if (!env.SESSION_SECRET) {
@@ -15,13 +18,29 @@ function parseCookie(header: string, name: string): string | null {
   for (const part of header.split(";")) {
     const [rawKey, ...rest] = part.trim().split("=");
     if (rawKey === name) {
-      return decodeURIComponent(rest.join("="));
+      try {
+        return decodeURIComponent(rest.join("="));
+      } catch {
+        return null;
+      }
     }
   }
   return null;
 }
 
-export async function readSession(
+export function readSession(
+  request: Request,
+  env: Env,
+): Promise<SessionUser | null> {
+  let session = sessions.get(request);
+  if (!session) {
+    session = verifyRequestSession(request, env);
+    sessions.set(request, session);
+  }
+  return session;
+}
+
+async function verifyRequestSession(
   request: Request,
   env: Env,
 ): Promise<SessionUser | null> {

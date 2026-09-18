@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Editor, Node } from "@tiptap/core";
+import Youtube from "@tiptap/extension-youtube";
 import { Markdown } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
 import {
@@ -8,6 +9,10 @@ import {
   expandOgCard,
   paragraphStandaloneHref,
 } from "../components/editor/extensions/auto-link-card.ts";
+import {
+  canonicalizeEditorMarkdown,
+  normalizeEmbedMarkdown,
+} from "./embeds.ts";
 
 const TestOgCard = Node.create({
   addAttributes() {
@@ -18,6 +23,21 @@ const TestOgCard = Node.create({
   name: "ogCard",
   parseHTML() {
     return [{ tag: "div[data-og-card]" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["div", HTMLAttributes];
+  },
+});
+
+const TestYoutube = Node.create({
+  addAttributes() {
+    return { src: { default: "" }, start: { default: 0 } };
+  },
+  atom: true,
+  group: "block",
+  name: "youtube",
+  parseHTML() {
+    return [{ tag: "div[data-youtube-video]" }];
   },
   renderHTML({ HTMLAttributes }) {
     return ["div", HTMLAttributes];
@@ -43,6 +63,7 @@ function cardEditor(markdown: string): Editor {
       StarterKit.configure({ link: { autolink: true, openOnClick: false } }),
       Markdown,
       TestOgCard,
+      TestYoutube,
     ],
   });
 }
@@ -131,6 +152,51 @@ test("autoLinkCardTransaction cards a pasted standalone URL in place", () => {
   editor.view.dispatch(tr);
   assert.equal(editor.state.doc.child(0).type.name, "ogCard");
   assert.equal(editor.state.doc.child(0).attrs.href, "https://example.com/a");
+  editor.destroy();
+});
+
+test("autoLinkCardTransaction embeds a standalone YouTube URL", () => {
+  const href = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
+  const editor = cardEditor(href);
+  const tr = autoLinkCardTransaction(editor.state, true);
+  assert.ok(tr);
+  editor.view.dispatch(tr);
+  assert.equal(editor.state.doc.child(0).type.name, "youtube");
+  assert.equal(editor.state.doc.child(0).attrs.src, href);
+  assert.equal(editor.state.doc.child(0).attrs.start, 0);
+  editor.destroy();
+});
+
+test("autoLinkCardTransaction keeps a YouTube start time", () => {
+  const href = "https://www.youtube.com/watch?v=jNQXAC9IVRw&t=12s";
+  const editor = cardEditor(href);
+  const tr = autoLinkCardTransaction(editor.state, true);
+  assert.ok(tr);
+  editor.view.dispatch(tr);
+  assert.equal(editor.state.doc.child(0).type.name, "youtube");
+  assert.equal(editor.state.doc.child(0).attrs.src, href);
+  assert.equal(editor.state.doc.child(0).attrs.start, 12);
+  editor.destroy();
+});
+
+test("youtube node reloads from a URL and serializes back to a URL", () => {
+  const href = "https://www.youtube.com/watch?v=jNQXAC9IVRw&t=12s";
+  const editor = new Editor({
+    content: normalizeEmbedMarkdown(href),
+    contentType: "markdown",
+    extensions: [
+      StarterKit.configure({ link: { autolink: true, openOnClick: false } }),
+      Markdown,
+      Youtube.extend({
+        renderMarkdown: (node) =>
+          typeof node.attrs?.src === "string" ? node.attrs.src : "",
+      }),
+    ],
+  });
+  assert.equal(editor.state.doc.child(0).type.name, "youtube");
+  assert.equal(editor.state.doc.child(0).attrs.src, href);
+  assert.equal(Number(editor.state.doc.child(0).attrs.start), 12);
+  assert.equal(canonicalizeEditorMarkdown(editor.getMarkdown()), href);
   editor.destroy();
 });
 

@@ -9,11 +9,37 @@ export const MCP_TOOLS = [
   "set_note_access",
   "invite_collaborator",
   "search_notes",
+  "grep_notes",
+  "list_note_links",
+  "list_backlinks",
+  "list_broken_links",
+  "resolve_wikilink",
   "agent_join",
   "agent_leave",
+  "list_folder_entries",
   "list_note_history",
   "get_revision",
   "restore_revision",
+  "move_folder",
+  "move_folder_contents",
+  "move_notes",
+  "para_list",
+  "para_archive_project",
+  "set_folder_scheme",
+  "scheme_get",
+  "jd_allocate_id",
+  "jd_create_id_folder",
+  "jd_get",
+  "jd_list_category",
+  "jd_validate_tree",
+  "set_edit_lock",
+  "medallion_list_sets",
+  "medallion_assign_folder",
+  "medallion_unassign_folder",
 ] as const;
 
 export type McpToolName = (typeof MCP_TOOLS)[number];
+
+/** list_notes / get_note / create_note の description に付ける。結果に url は載せない。 */
+export const MCP_NOTE_URL_HINT =
+  "Note page URL is /n/{id} using the UUID id. Do not use /{shortId}. Origin is the same host as this MCP endpoint.";

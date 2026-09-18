@@ -63,7 +63,9 @@ export function MenuFixed({
 type ItemProps = {
   children: ReactNode;
   active?: boolean;
+  className?: string;
   danger?: boolean;
+  disabled?: boolean;
   onClick?: () => void;
   to?: string;
   href?: string;
@@ -72,7 +74,9 @@ type ItemProps = {
 export function MenuItem({
   children,
   active,
+  className: itemClassName,
   danger,
+  disabled,
   onClick,
   to,
   href,
@@ -82,6 +86,8 @@ export function MenuItem({
     "hover:bg-surface",
     active && "bg-surface",
     danger && "text-error",
+    disabled && "cursor-default opacity-65",
+    itemClassName,
   );
 
   if (to) {
@@ -103,6 +109,7 @@ export function MenuItem({
   return (
     <button
       className={className}
+      disabled={disabled}
       onClick={onClick}
       role="menuitem"
       type="button"

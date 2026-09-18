@@ -1,0 +1,2 @@
+c4ec595595bcc98f4ef2105d8422e1b7a31c4f3198b8e7f3245d40e0ef1751e2 *apps/web/src/lib/note-read-session.ts
+81ec95ed01ccbcb1d3dfe308814e7e0d53871f962e73256d4061973e2e60e4a2 *apps/web/src/lib/offline-cache.ts

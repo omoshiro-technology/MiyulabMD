@@ -2,6 +2,7 @@ import type {
   FolderAccess,
   FolderRecord,
   NoteSummary,
+  ParaSpaceSummary,
   SessionUser,
 } from "@miyulabmd/shared";
 import { folderUrl } from "@miyulabmd/shared";
@@ -18,15 +19,19 @@ import type { ContextMenuItem } from "../components/notes/ContextMenu.tsx";
 import type { MenuTarget } from "../components/notes/NoteTree.tsx";
 import type { ApiResult } from "../lib/api.ts";
 import {
+  assignFolderMedallion,
+  clearFolderMedallion,
   createFolder,
   createNote,
   deleteFolder,
   deleteNote,
   fetchFolder,
   fetchNote,
+  fetchPara,
   fetchPublicFolders,
   renameFolder,
   updateFolderAccess,
+  updateFolderScheme,
   updateNote,
 } from "../lib/api.ts";
 import {
@@ -36,6 +41,7 @@ import {
   loadNotes,
   peekFolder,
   seedFolderCache,
+  upsertNoteSummary,
 } from "../lib/list-cache.ts";
 import { invalidateNoteCache, seedNoteCache } from "../lib/note-cache.ts";
 
@@ -97,8 +103,9 @@ export function homeListFlags(input: {
   error: string | null;
 }) {
   const needsFolder = Boolean(input.folderId || input.user);
+  const waitingForFolder = needsFolder && !input.visibleFolder && !input.error;
   const showPlaceholder =
-    (input.userLoading || (needsFolder && input.folderPending)) &&
+    (input.userLoading || input.folderPending || waitingForFolder) &&
     !input.visibleFolder;
   return {
     canAdmin: Boolean(input.visibleFolder?.flags.canAdmin),
@@ -120,7 +127,6 @@ export function subscribeHomeNotes(
     return undefined;
   }
   let cancelled = false;
-  invalidateNotesCache();
   void loadNotes(true).then((noteList) => {
     if (!cancelled) {
       setNotes(noteList);
@@ -158,14 +164,16 @@ function applyFolderLoadResult(
   }
   setters.setFolderPending(false);
   if (!result.ok) {
-    if (!peekFolder(folderId)) {
-      setters.setVisibleFolder(null);
+    if (peekFolder(folderId)) {
+      return;
     }
+    setters.setVisibleFolder(null);
     setters.setError(
       result.status === 404 ? "フォルダが見つかりません。" : result.error,
     );
     return;
   }
+  setters.setError(null);
   setters.setVisibleFolder(result.data);
 }
 
@@ -197,11 +205,11 @@ export function subscribeHomeFolder(
   if (cached) {
     setters.setVisibleFolder(cached);
     setters.setFolderPending(false);
-    return undefined;
+  } else {
+    setters.setFolderPending(true);
   }
 
-  setters.setFolderPending(true);
-  void loadFolder(folderId).then((result) => {
+  void loadFolder(folderId, true).then((result) => {
     applyFolderLoadResult(result, folderId, cancelled, setters);
   });
   return () => {
@@ -234,6 +242,8 @@ export async function persistNewNote(
     return;
   }
 
+  const { markdown: _markdown, ...summary } = result.data;
+  upsertNoteSummary(summary);
   seedNoteCache(result.data);
   navigate(`/n/${result.data.id}`);
 }
@@ -249,11 +259,16 @@ export async function persistNewFolder(
     setShare: (share: ShareState) => void;
     setShareError: (error: string | null) => void;
   },
+  options: { useScheme?: boolean } = {},
 ) {
   setters.setFolderCreating(true);
   setters.setFolderCreateError(null);
 
-  const result = await createFolder({ name, parentId: visibleFolder?.id });
+  const result = await createFolder({
+    name,
+    parentId: visibleFolder?.id,
+    useScheme: options.useScheme,
+  });
   if (!result.ok) {
     setters.setFolderCreateError(result.error);
     setters.setFolderCreating(false);
@@ -384,6 +399,22 @@ export async function persistHomeShare(
   await persistHomeNoteShare(share, next, setters);
 }
 
+/**
+ * §2.4/§2.5: fetch the caller's PARA spaces (with buckets), but only when the
+ * para feature flag is on — flag OFF means /api/para is never called and the
+ * section stays hidden.
+ */
+export async function loadParaSpaces(
+  user: SessionUser | null | undefined,
+  paraEnabled: boolean,
+): Promise<ParaSpaceSummary[]> {
+  if (!(user && paraEnabled)) {
+    return [];
+  }
+  const result = await fetchPara({ viewerId: user.id });
+  return result.ok ? result.data.spaces : [];
+}
+
 export function menuPosition(event: MouseEvent) {
   const target = event.currentTarget;
   if (target instanceof HTMLButtonElement) {
@@ -406,6 +437,13 @@ function folderMenuItems(
   onShare: (id: string, name: string) => void,
   onRename: (id: string, name: string) => void,
   onDelete: (id: string, name: string) => void,
+  options: {
+    onArchive: (id: string, name: string) => void;
+    onScheme: (id: string, name: string, scheme: string | null) => void;
+    /** §2.6: medallion assignment dialog (layers feature only). */
+    onMedallion?: (id: string, name: string, path?: string) => void;
+    projectsPaths: string[];
+  },
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = [
     { label: "開く", onSelect: () => navigate(folderUrl(target.id)) },
@@ -418,6 +456,27 @@ function folderMenuItems(
     label: "名前を変更",
     onSelect: () => onRename(target.id, target.name),
   });
+  items.push({
+    label: "命名規則…",
+    onSelect: () =>
+      options.onScheme(target.id, target.name, target.scheme ?? null),
+  });
+  if (options.onMedallion) {
+    items.push({
+      label: "メダリオン層…",
+      onSelect: () =>
+        options.onMedallion?.(target.id, target.name, target.path),
+    });
+  }
+  const inProjects = options.projectsPaths.some(
+    (path) => target.path?.startsWith(`${path}/`) === true,
+  );
+  if (inProjects) {
+    items.push({
+      label: "完了してアーカイブ（PARA）",
+      onSelect: () => options.onArchive(target.id, target.name),
+    });
+  }
   items.push({
     danger: true,
     label: "削除",
@@ -457,6 +516,12 @@ export function handleItemMenu(
   onNoteShare: (note: NoteSummary) => void,
   onRename: (id: string, name: string) => void,
   onDelete: (kind: ConfirmState["kind"], id: string, name: string) => void,
+  options: {
+    onArchive: (id: string, name: string) => void;
+    onScheme: (id: string, name: string, scheme: string | null) => void;
+    onMedallion?: (id: string, name: string, path?: string) => void;
+    projectsPaths: string[];
+  },
 ) {
   const position = menuPosition(event);
   if (target.kind === "folder") {
@@ -470,6 +535,7 @@ export function handleItemMenu(
         onFolderShare,
         onRename,
         (id, name) => onDelete("folder", id, name),
+        options,
       ),
     });
     return;
@@ -512,6 +578,101 @@ export async function refreshHomeList(
     return;
   }
   setVisibleFolder(result.data);
+}
+
+export async function persistFolderScheme(
+  target: { id: string; name: string; scheme: string | null } | null,
+  scheme: string | null,
+  folderId: string | undefined,
+  user: SessionUser | null,
+  navigate: NavigateFunction,
+  setters: {
+    setSchemeBusy: (busy: boolean) => void;
+    setSchemeDialog: (
+      value: { id: string; name: string; scheme: string | null } | null,
+    ) => void;
+    setSchemeError: (error: string | null) => void;
+    setNotes: (notes: NoteSummary[]) => void;
+    setVisibleFolder: (folder: FolderAccess | null) => void;
+  },
+) {
+  if (!target) {
+    return;
+  }
+  setters.setSchemeBusy(true);
+  setters.setSchemeError(null);
+  const result = await updateFolderScheme(target.id, scheme);
+  if (!result.ok) {
+    setters.setSchemeError(result.error);
+    setters.setSchemeBusy(false);
+    return;
+  }
+  setters.setSchemeBusy(false);
+  setters.setSchemeDialog(null);
+  invalidateFolderCache();
+  await refreshHomeList(
+    folderId,
+    user,
+    navigate,
+    setters.setNotes,
+    setters.setVisibleFolder,
+  );
+}
+
+export type MedallionDialogTarget = {
+  id: string;
+  name: string;
+  path?: string;
+};
+
+/**
+ * §2.6: assign a medallion layer to a folder (`next` = {setId, layer}) or
+ * clear the folder's own assignment (`next` = null). Inherited badges are
+ * recomputed by reloading the assignment list afterwards.
+ */
+export async function persistFolderMedallion(
+  target: MedallionDialogTarget | null,
+  next: { setId: string; layer: string } | null,
+  folderId: string | undefined,
+  user: SessionUser | null,
+  navigate: NavigateFunction,
+  setters: {
+    setMedallionBusy: (busy: boolean) => void;
+    setMedallionDialog: (value: MedallionDialogTarget | null) => void;
+    setMedallionError: (error: string | null) => void;
+    setNotes: (notes: NoteSummary[]) => void;
+    setVisibleFolder: (folder: FolderAccess | null) => void;
+    /** Reloads the medallion set/assignment lists for badges. */
+    onMedallionsChanged: () => void;
+  },
+) {
+  if (!target) {
+    return;
+  }
+  setters.setMedallionBusy(true);
+  setters.setMedallionError(null);
+  const result = next
+    ? await assignFolderMedallion(target.id, {
+        layer: next.layer,
+        setId: next.setId,
+      })
+    : await clearFolderMedallion(target.id);
+  if (!result.ok) {
+    setters.setMedallionError(result.error);
+    setters.setMedallionBusy(false);
+    return;
+  }
+  setters.setMedallionBusy(false);
+  setters.setMedallionDialog(null);
+  setters.onMedallionsChanged();
+  invalidateFolderCache();
+  await refreshHomeList(
+    folderId,
+    user,
+    navigate,
+    setters.setNotes,
+    setters.setVisibleFolder,
+  );
 }
 
 export async function persistRenameFolder(

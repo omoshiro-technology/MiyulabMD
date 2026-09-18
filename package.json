@@ -21,7 +21,7 @@
     "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.12",
+    "@biomejs/biome": "^2.5.13",
     "@mizchi/lsmcp": "0.10.0",
     "mprocs": "0.9.6",
     "portless": "0.15.6",

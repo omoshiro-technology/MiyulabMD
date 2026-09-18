@@ -16,13 +16,49 @@ type Props = {
   onFolderBlur: () => void;
 };
 
-export function FolderPopover({
+/**
+ * フォルダパネルの中身。「⋯ ノート」メニューのサブビューからも再利用する
+ * （specs/knowledge-management.html §3.1: メニュー項目から現行パネルを開く）。
+ */
+export function FolderPanelFields({
   folder,
   folderId,
   isOwner,
   onFolderChange,
   onFolderBlur,
 }: Props) {
+  return (
+    <div className="grid gap-2 px-3 py-2">
+      {isOwner && (
+        <>
+          <Input
+            aria-label="ノートのフォルダ"
+            className="w-full"
+            onBlur={onFolderBlur}
+            onChange={(event) => onFolderChange(event.target.value)}
+            placeholder="例: work/infra"
+            type="text"
+            value={folder}
+            variant="pill"
+          />
+          {folderId && (
+            <Link className="text-accent no-underline" to={folderUrl(folderId)}>
+              開く
+            </Link>
+          )}
+        </>
+      )}
+      {!isOwner && folderId && (
+        <Link className="text-accent no-underline" to={folderUrl(folderId)}>
+          フォルダを開く
+        </Link>
+      )}
+      {!(isOwner || folderId) && <MutedText>なし</MutedText>}
+    </div>
+  );
+}
+
+export function FolderPopover(props: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   useDismiss(open, () => setOpen(false), rootRef);
@@ -39,39 +75,7 @@ export function FolderPopover({
       />
       {open && (
         <MenuPanel role="dialog" width="16rem">
-          <div className="grid gap-2 px-3 py-2">
-            {isOwner && (
-              <>
-                <Input
-                  aria-label="ノートのフォルダ"
-                  className="w-full"
-                  onBlur={onFolderBlur}
-                  onChange={(event) => onFolderChange(event.target.value)}
-                  placeholder="例: work/infra"
-                  type="text"
-                  value={folder}
-                  variant="pill"
-                />
-                {folderId && (
-                  <Link
-                    className="text-accent no-underline"
-                    to={folderUrl(folderId)}
-                  >
-                    開く
-                  </Link>
-                )}
-              </>
-            )}
-            {!isOwner && folderId && (
-              <Link
-                className="text-accent no-underline"
-                to={folderUrl(folderId)}
-              >
-                フォルダを開く
-              </Link>
-            )}
-            {!(isOwner || folderId) && <MutedText>なし</MutedText>}
-          </div>
+          <FolderPanelFields {...props} />
         </MenuPanel>
       )}
     </div>

@@ -68,6 +68,23 @@ export type NoteRevisionRestore = {
 export const NOTE_RESTORE_MESSAGE =
   "今の本文を、選んだ時点の全文で置き換えました。同時に編集していた内容は上書きされます。";
 
+// --- edit lock (§2.6) -------------------------------------------------------
+
+/**
+ * Error code returned by mutation APIs while a note's `edit_locked` flag is
+ * set. Locked notes allow reads and explicit unlock only — body edits,
+ * delete, folder move, rename, and access changes are all rejected.
+ */
+export const EDIT_LOCKED_CODE = "edit_locked";
+
+/**
+ * WebSocket close code DocumentRoom uses when the edit lock engages
+ * mid-session. The 4400-4499 range is the app-level "permanent" convention:
+ * clients must treat the note as read-only instead of retrying the write.
+ */
+export const EDIT_LOCK_WS_CLOSE_CODE = 4403;
+export const EDIT_LOCK_WS_CLOSE_REASON = "edit_locked";
+
 export function isNoteHistoryActorKind(
   value: string,
 ): value is NoteHistoryActorKind {
@@ -90,11 +107,46 @@ export type FolderRecord = {
   /** Effective scopes for list display (not a path leak). */
   readScope?: AccessScope;
   writeScope?: AccessScope;
+  /** Owner views only: naming rule declared for this folder's children. */
+  scheme?: string | null;
+  /** Owner views only: ID minted by a parent's scheme. */
+  schemeId?: string | null;
+  schemeTitle?: string | null;
 };
 
 export type FolderCrumb = {
   id: string;
   name: string;
+};
+
+export type FolderEntryFolder = {
+  type: "folder";
+  id: string;
+  name: string;
+  parentId: string | null;
+  updatedAt: number;
+  /** Owner views only: recursive count of notes inside this folder. */
+  noteCount?: number;
+  /** Owner views only: naming rule declared for this folder's children. */
+  scheme?: string | null;
+  /** Owner views only: ID minted by a parent's scheme. */
+  schemeId?: string | null;
+  schemeTitle?: string | null;
+};
+
+export type FolderEntryNote = {
+  type: "note";
+  id: string;
+  title: string;
+  updatedAt: number;
+};
+
+export type FolderEntry = FolderEntryFolder | FolderEntryNote;
+
+export type FolderChildrenResult = {
+  folder: { id: string | null; name: string; path: string[] };
+  entries: FolderEntry[];
+  nextCursor: string | null;
 };
 
 export type Note = {
@@ -105,6 +157,16 @@ export type Note = {
   title: string;
   folder: string;
   folderId: string | null;
+  /** Scheme ID of the containing folder (e.g. `15.22`), when folderId is visible. */
+  folderSchemeId?: string | null;
+  /** Title part of the containing folder's scheme name. */
+  folderSchemeTitle?: string | null;
+  /**
+   * §2.6 permanent per-note edit lock. While true every mutation (body,
+   * metadata, move, delete, sharing) is rejected; only reads and explicit
+   * unlock are allowed. Independent of medallion folder layers.
+   */
+  editLocked: boolean;
   permission: PermissionPreset;
   access: NoteAccess;
   markdown: string;
@@ -114,6 +176,51 @@ export type Note = {
 };
 
 export type NoteSummary = Omit<Note, "markdown">;
+
+export const SEARCH_SCOPES = ["title", "body", "all"] as const;
+export type SearchScope = (typeof SEARCH_SCOPES)[number];
+
+export function isSearchScope(value: string): value is SearchScope {
+  return (SEARCH_SCOPES as readonly string[]).includes(value);
+}
+
+export type NoteSearchHit = NoteSummary & {
+  snippet?: string;
+};
+
+export type NoteSearchPage = {
+  notes: NoteSearchHit[];
+  nextCursor: string | null;
+};
+
+export type GrepMatch = {
+  noteId: NoteId;
+  title: string;
+  /** 1-based line number inside markdown_snapshot. */
+  line: number;
+  /** 1-based column where the match starts. */
+  column: number;
+  /** Full text of the matching line. */
+  text: string;
+  before: string[];
+  after: string[];
+  /** Snapshot freshness — the live document may be newer. */
+  snapshotUpdatedAt: number | null;
+};
+
+export type GrepResult = {
+  matches: GrepMatch[];
+  /** True when a scan/match/time limit cut the result short. */
+  truncated: boolean;
+  scannedNotes: number;
+};
+
+/** Combined title hits + line-level body hits for the search palette. */
+export type WorkspaceSearchResult = {
+  query: string;
+  notes: NoteSearchHit[];
+  grep: GrepResult;
+};
 
 export type NoteCollaborator = {
   noteId: NoteId;
@@ -159,6 +266,11 @@ export type FolderAccess = EffectiveAccess & {
   children: FolderRecord[];
   flags: PermissionFlags;
   locked?: boolean;
+  /** Naming rule this folder declares for its children. */
+  scheme?: string | null;
+  /** ID this folder carries from a parent's scheme. */
+  schemeId?: string | null;
+  schemeTitle?: string | null;
 };
 
 export type UpdateFolderAccessInput = {

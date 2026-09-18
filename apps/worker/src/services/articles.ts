@@ -14,11 +14,10 @@ import {
   parseArticleSchema,
   readArticleFrontmatter,
   resolveArticleListFolder,
-  rewriteFolderPrefix,
 } from "@miyulabmd/shared";
 
 import { db } from "../db/client.ts";
-import { ensureFolderRow, getFolderById, getFolderByPath } from "./access.ts";
+import { ensureFolderRow, getFolderById } from "./access.ts";
 
 type SourceRow = {
   id: string;
@@ -637,31 +636,6 @@ export function createArticleService(env: Env) {
       return updated ? presentSource(updated) : null;
     },
   };
-}
-
-export async function rewriteArticleSourceFolders(
-  env: Env,
-  ownerId: string,
-  from: string,
-  to: string,
-): Promise<void> {
-  const rows = await db(env)
-    .prepare("SELECT id, folder FROM article_sources WHERE owner_id = ?")
-    .bind(ownerId)
-    .all<{ id: string; folder: string }>();
-  for (const row of rows.results ?? []) {
-    const next = rewriteFolderPrefix(row.folder, from, to);
-    if (next === null) {
-      continue;
-    }
-    const rec = await getFolderByPath(env, ownerId, next);
-    await db(env)
-      .prepare(
-        "UPDATE article_sources SET folder = ?, folder_id = ? WHERE id = ?",
-      )
-      .bind(next, rec?.id ?? null, row.id)
-      .run();
-  }
 }
 
 export async function deleteArticleSourcesInFolder(

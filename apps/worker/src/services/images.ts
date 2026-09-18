@@ -1,4 +1,8 @@
-import { isAccessScope, type SessionUser } from "@miyulabmd/shared";
+import {
+  EDIT_LOCKED_CODE,
+  isAccessScope,
+  type SessionUser,
+} from "@miyulabmd/shared";
 
 import { db } from "../db/client.ts";
 import { resolveNoteAccess } from "./access.ts";
@@ -19,6 +23,7 @@ type NoteRow = {
   folder: string;
   read_scope: string | null;
   write_scope: string | null;
+  edit_locked: number;
 };
 
 type ImageRow = {
@@ -31,7 +36,7 @@ type ImageRow = {
 function findNoteRow(env: Env, idOrShortId: string): Promise<NoteRow | null> {
   return db(env)
     .prepare(
-      "SELECT id, owner_id, folder, read_scope, write_scope FROM notes WHERE id = ? OR short_id = ?",
+      "SELECT id, owner_id, folder, read_scope, write_scope, edit_locked FROM notes WHERE id = ? OR short_id = ?",
     )
     .bind(idOrShortId, idOrShortId)
     .first<NoteRow>();
@@ -67,13 +72,24 @@ function findImageRow(
 export type UploadImageResult =
   | { kind: "ok"; id: string; url: string }
   | { kind: "not_found" }
-  | { kind: "denied"; status: 401 | 403 }
+  | { kind: "denied"; status: 401 | 403; code?: string }
   | { kind: "bad_request"; error: string };
 
 export type GetImageResult =
   | { kind: "ok"; body: ReadableStream; contentType: string }
   | { kind: "not_found" }
   | { kind: "denied"; status: 401 | 403 };
+
+function imageDeniedStatus(
+  env: Env,
+  flags: { canView: boolean; canEdit: boolean; canAdmin: boolean },
+  ownerId: string,
+  user: SessionUser | undefined,
+): 401 | 403 {
+  return user === undefined
+    ? viewDeniedHttpStatus({ flags, ownerId }, undefined, env)
+    : 403;
+}
 
 export function createImageService(env: Env) {
   return {
@@ -105,14 +121,7 @@ export function createImageService(env: Env) {
       if (!access.flags.canView) {
         return {
           kind: "denied",
-          status:
-            user === undefined
-              ? viewDeniedHttpStatus(
-                  { flags: access.flags, ownerId: row.owner_id },
-                  undefined,
-                  env,
-                )
-              : 403,
+          status: imageDeniedStatus(env, access.flags, row.owner_id, user),
         };
       }
 
@@ -146,15 +155,12 @@ export function createImageService(env: Env) {
       if (!access.flags.canEdit) {
         return {
           kind: "denied",
-          status:
-            user === undefined
-              ? viewDeniedHttpStatus(
-                  { flags: access.flags, ownerId: row.owner_id },
-                  undefined,
-                  env,
-                )
-              : 403,
+          status: imageDeniedStatus(env, access.flags, row.owner_id, user),
         };
+      }
+      // §2.6: image upload mutates the note — blocked while edit_locked.
+      if (row.edit_locked === 1) {
+        return { code: EDIT_LOCKED_CODE, kind: "denied", status: 403 };
       }
 
       const contentType = file.type;

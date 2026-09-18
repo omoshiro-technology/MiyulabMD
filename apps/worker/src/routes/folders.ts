@@ -11,10 +11,13 @@ import { Elysia } from "elysia";
 import { readSession } from "../auth/session.ts";
 import { instanceFlags } from "../env.ts";
 import {
+  buildAccessSnapshot,
   createOwnedFolder,
   deleteFolderPolicy,
   ensureFolderRow,
+  folderViewFlags,
   getFolderById,
+  listFolderChildren,
   listOwnedFolders,
   listPublicSharedFolders,
   listSharedFolders,
@@ -23,7 +26,17 @@ import {
   resolveFolderAccess,
   upsertFolderPolicy,
 } from "../services/access.ts";
+import {
+  type MoveError,
+  moveFolder,
+  moveFolderContents,
+} from "../services/move.ts";
 import { createNoteService } from "../services/notes.ts";
+import {
+  createSchemeChild,
+  type SchemeError,
+  setFolderScheme,
+} from "../services/schemes.ts";
 
 const notes = createNoteService(env);
 
@@ -33,6 +46,22 @@ async function parseJsonBody<T>(request: Request): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+function moveErrorResponse(
+  set: { status?: number | string },
+  result: MoveError | SchemeError,
+): { error: string } {
+  if (result.kind === "not_found") {
+    set.status = 404;
+    return { error: "Not found" };
+  }
+  if (result.kind === "denied") {
+    set.status = result.status;
+    return { error: result.status === 401 ? "Unauthorized" : "Forbidden" };
+  }
+  set.status = result.status;
+  return { error: result.error };
 }
 
 function normalizeFolderName(name: string): string | null {
@@ -197,6 +226,39 @@ export const folderRoutes = new Elysia({ prefix: "/api/folders" })
     const folders = await listPublicSharedFolders(env);
     return { folders };
   })
+  .get("/:id/children", async ({ params, request, set }) => {
+    const user = await readSession(request, env);
+    const rec = await getFolderById(env, params.id);
+    if (!rec) {
+      set.status = 404;
+      return { error: "Not found" };
+    }
+    const snapshot = await buildAccessSnapshot(env, [rec.owner_id]);
+    const flags = await folderViewFlags(
+      env,
+      rec.owner_id,
+      rec.folder,
+      user,
+      snapshot,
+    );
+    if (!flags.canView) {
+      set.status = 404;
+      return { error: "Not found" };
+    }
+    const url = new URL(request.url);
+    return listFolderChildren(
+      env,
+      rec.owner_id,
+      rec.folder,
+      rec.id,
+      user,
+      {
+        cursor: url.searchParams.get("cursor") ?? undefined,
+        limit: Number(url.searchParams.get("limit") ?? "") || undefined,
+      },
+      snapshot,
+    );
+  })
   .get("/:id", async ({ params, request, set }) => {
     const user = await readSession(request, env);
     const rec = await getFolderById(env, params.id);
@@ -210,6 +272,7 @@ export const folderRoutes = new Elysia({ prefix: "/api/folders" })
       rec.owner_id,
       rec.folder,
       user,
+      await buildAccessSnapshot(env, [rec.owner_id]),
     );
     if (!access.flags.canView) {
       set.status = 404;
@@ -227,7 +290,13 @@ export const folderRoutes = new Elysia({ prefix: "/api/folders" })
     const path = normalizeFolder(
       new URL(request.url).searchParams.get("path") ?? "",
     );
-    const access = await resolveFolderAccess(env, user.id, path, user);
+    const access = await resolveFolderAccess(
+      env,
+      user.id,
+      path,
+      user,
+      await buildAccessSnapshot(env, [user.id]),
+    );
     return access;
   })
   .post("/", async ({ request, set }) => {
@@ -241,7 +310,27 @@ export const folderRoutes = new Elysia({ prefix: "/api/folders" })
       folder?: string;
       name?: string;
       parentId?: string;
+      schemeId?: string;
+      useScheme?: boolean;
     }>(request);
+    if (body?.useScheme) {
+      // 親フォルダの命名規則で採番して作成する。
+      if (!body.parentId) {
+        set.status = 400;
+        return { error: "parentId を指定してください" };
+      }
+      const created = await createSchemeChild(
+        env,
+        body.parentId,
+        { schemeId: body.schemeId, title: body.name },
+        user,
+      );
+      if (created.kind !== "ok") {
+        return moveErrorResponse(set, created);
+      }
+      set.status = 201;
+      return created.result.folder;
+    }
     const resolved = await resolveCreateFolderPath(user.id, body);
     if ("error" in resolved) {
       set.status = resolved.status;
@@ -296,6 +385,64 @@ export const folderRoutes = new Elysia({ prefix: "/api/folders" })
     }
 
     return resolveFolderAccess(env, user.id, folder, user);
+  })
+  .post("/:id/scheme", async ({ params, request, set }) => {
+    const user = await readSession(request, env);
+    const body = await parseJsonBody<{ scheme?: string | null }>(request);
+    const result = await setFolderScheme(
+      env,
+      params.id,
+      body && "scheme" in body ? (body.scheme ?? null) : null,
+      user ?? undefined,
+    );
+    if (result.kind !== "ok") {
+      return moveErrorResponse(set, result);
+    }
+    return result.result;
+  })
+  .post("/:id/move", async ({ params, request, set }) => {
+    const user = await readSession(request, env);
+    const body = await parseJsonBody<{
+      destFolderId?: string | null;
+      name?: string;
+      dryRun?: boolean;
+    }>(request);
+    const result = await moveFolder(
+      env,
+      params.id,
+      {
+        destFolderId: body?.destFolderId,
+        dryRun: body?.dryRun,
+        name: body?.name,
+      },
+      user ?? undefined,
+    );
+    if (result.kind !== "ok") {
+      return moveErrorResponse(set, result);
+    }
+    return result.result;
+  })
+  .post("/:id/move-contents", async ({ params, request, set }) => {
+    const user = await readSession(request, env);
+    const body = await parseJsonBody<{
+      destFolderId?: string | null;
+      includeSubfolders?: boolean;
+      dryRun?: boolean;
+    }>(request);
+    const result = await moveFolderContents(
+      env,
+      params.id,
+      {
+        destFolderId: body?.destFolderId,
+        dryRun: body?.dryRun,
+        includeSubfolders: body?.includeSubfolders,
+      },
+      user ?? undefined,
+    );
+    if (result.kind !== "ok") {
+      return moveErrorResponse(set, result);
+    }
+    return result.result;
   })
   .patch("/:id", async ({ params, request, set }) => {
     const user = await readSession(request, env);

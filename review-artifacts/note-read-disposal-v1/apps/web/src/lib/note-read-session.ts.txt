@@ -1,0 +1,136 @@
+import type { Note } from "@miyulabmd/shared";
+
+import { type ApiResult, fetchNote } from "./api.ts";
+import { openOfflineCache } from "./offline-cache.ts";
+import type { ViewerContext } from "./viewer-context.ts";
+
+export type NoteReadResult =
+  | {
+      ok: true;
+      data: Note;
+      viewer: ViewerContext;
+      source: "network" | "cache";
+      cachedAt: number | null;
+    }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      viewer: ViewerContext;
+      source: "network";
+      cachedAt: null;
+    };
+
+export type NoteReadSession = {
+  read(id: string): Promise<NoteReadResult>;
+  dispose(): void;
+};
+
+function snapshotViewer(viewer: ViewerContext): ViewerContext {
+  return {
+    cacheViewerId: viewer.cacheViewerId,
+    mode: viewer.mode,
+    user: viewer.user
+      ? {
+          displayName: viewer.user.displayName,
+          email: viewer.user.email,
+          id: viewer.user.id,
+        }
+      : null,
+  };
+}
+
+export function createNoteReadSession(viewer: ViewerContext): NoteReadSession {
+  const capturedViewer = snapshotViewer(viewer);
+  const controller = new AbortController();
+  const { signal } = controller;
+  let cachePromise:
+    | Promise<Awaited<ReturnType<typeof openOfflineCache>> | null>
+    | undefined;
+  let disposed = false;
+  let cache: Awaited<ReturnType<typeof openOfflineCache>> | null = null;
+
+  const getCache = () => {
+    if (!cachePromise) {
+      cachePromise = capturedViewer.cacheViewerId
+        ? openOfflineCache({
+            signal,
+            userId: capturedViewer.cacheViewerId,
+          })
+            .then((openedCache) => {
+              if (disposed) {
+                openedCache.close();
+                return null;
+              }
+              cache = openedCache;
+              return openedCache;
+            })
+            .catch((error: unknown) => {
+              if (signal.aborted) {
+                throw signal.reason ?? error;
+              }
+              return null;
+            })
+        : Promise.resolve(null);
+    }
+    return cachePromise;
+  };
+  const persist = async (
+    openedCache: Awaited<ReturnType<typeof openOfflineCache>> | null,
+    data: Note,
+  ) => {
+    if (!openedCache) {
+      return;
+    }
+    try {
+      await openedCache.putNote(data, { signal });
+    } catch (error: unknown) {
+      if (signal.aborted) {
+        throw signal.reason ?? error;
+      }
+      // Valid online data must not depend on offline storage.
+    }
+  };
+
+  return {
+    dispose() {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      controller.abort();
+      cache?.close();
+      cache = null;
+    },
+
+    async read(id) {
+      const result: ApiResult<Note> = await fetchNote(id, { signal });
+      if (!result.ok) {
+        if (signal.aborted) {
+          throw signal.reason;
+        }
+        return {
+          cachedAt: null,
+          error: result.error,
+          ok: false,
+          source: "network",
+          status: result.status,
+          viewer: snapshotViewer(capturedViewer),
+        };
+      }
+
+      await persist(await getCache(), result.data);
+      if (signal.aborted) {
+        throw signal.reason;
+      }
+
+      return {
+        cachedAt: null,
+        data: result.data,
+        ok: true,
+        source: "network",
+        viewer: snapshotViewer(capturedViewer),
+      };
+    },
+  };
+}

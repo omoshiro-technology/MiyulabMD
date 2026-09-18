@@ -1,0 +1,10 @@
+v6 candidate: final success publication generation guard moved to immediately before return, after all awaits; applies to network and cached success results only.
+Serial required browser suite including parent cached-read test: 25 passed, exit 0.
+The temporary parent test was not included in the v6 artifact.
+After the final-boundary code change, v6 snapshot bytes were re-applied before validation:
+required browser suite without temporary parent test: 24 passed, exit 0.
+full web unit suite: 117 passed, exit 0.
+typecheck: exit 0.
+targeted Biome check: exit 0.
+git diff --check: exit 0.
+The 25-test run above used the identical v6 source bytes with the temporary parent test present; that test was then removed before the 24-test run.

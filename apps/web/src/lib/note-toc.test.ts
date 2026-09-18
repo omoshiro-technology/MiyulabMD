@@ -17,9 +17,9 @@ test("extractNoteToc collects h1–h3 and ignores code fences", () => {
   ].join("\n");
 
   assert.deepEqual(extractNoteToc(markdown), [
-    { id: "user-content-alpha", level: 1, text: "Alpha" },
-    { id: "user-content-beta-link", level: 2, text: "Beta link" },
-    { id: "user-content-gamma-bold", level: 3, text: "Gamma bold" },
+    { id: "user-content-alpha", level: 1, line: 1, text: "Alpha" },
+    { id: "user-content-beta-link", level: 2, line: 8, text: "Beta link" },
+    { id: "user-content-gamma-bold", level: 3, line: 9, text: "Gamma bold" },
   ]);
 });
 
@@ -27,10 +27,12 @@ test("extractNoteToc ignores YAML frontmatter", () => {
   const markdown = ["---", "title: Not a heading", "---", "", "# Real"].join(
     "\n",
   );
+  const entries = extractNoteToc(markdown);
   assert.deepEqual(
-    extractNoteToc(markdown).map((entry) => entry.text),
+    entries.map((entry) => entry.text),
     ["Real"],
   );
+  assert.equal(entries[0]?.line, 5);
 });
 
 test("extractNoteToc deduplicates slugs like rehype-slug", () => {

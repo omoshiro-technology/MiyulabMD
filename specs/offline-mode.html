@@ -1,0 +1,2001 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiyulabMD オフラインモード — 設計再考</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --bg-soft: #10161d;
+    --panel: #141b24;
+    --panel-2: #182130;
+    --border: #283445;
+    --border-soft: #1e2937;
+    --text: #dbe4ee;
+    --text-dim: #93a3b5;
+    --text-faint: #64748b;
+    --accent: #6ea8fe;
+    --accent-soft: rgba(110, 168, 254, 0.12);
+    --green: #4cc38a;
+    --green-soft: rgba(76, 195, 138, 0.12);
+    --amber: #e5b567;
+    --amber-soft: rgba(229, 181, 103, 0.12);
+    --red: #f07a7a;
+    --red-soft: rgba(240, 122, 122, 0.12);
+    --purple: #b58cff;
+    --purple-soft: rgba(181, 140, 255, 0.12);
+    --mono: "SFMono-Regular", "Cascadia Code", "Consolas", "Menlo", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN",
+      "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", "Meiryo", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.75;
+  }
+  .layout { display: flex; min-height: 100vh; }
+
+  /* ---------- sidebar ---------- */
+  nav.toc {
+    width: 264px;
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    border-right: 1px solid var(--border-soft);
+    padding: 28px 18px 40px;
+    background: var(--bg-soft);
+  }
+  nav.toc .brand {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+  nav.toc .brand strong { color: var(--text); }
+  nav.toc ul { list-style: none; margin: 18px 0 0; padding: 0; }
+  nav.toc li { margin: 0; }
+  nav.toc a {
+    display: block;
+    padding: 5px 10px;
+    border-radius: 6px;
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 13.5px;
+    border-left: 2px solid transparent;
+  }
+  nav.toc a:hover { color: var(--text); background: var(--panel); }
+  nav.toc a.l2 { padding-left: 24px; font-size: 12.5px; color: var(--text-faint); }
+  nav.toc a.l2:hover { color: var(--text-dim); }
+
+  /* ---------- content ---------- */
+  main {
+    flex: 1;
+    min-width: 0;
+    padding: 48px 56px 120px;
+    max-width: 1080px;
+  }
+  .doc-head { margin-bottom: 40px; }
+  .doc-head .kicker {
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  h1 {
+    font-size: 30px;
+    font-weight: 800;
+    margin: 0 0 12px;
+    letter-spacing: -0.01em;
+  }
+  .doc-head p.lead {
+    font-size: 16px;
+    color: var(--text-dim);
+    max-width: 760px;
+    margin: 0;
+  }
+  .meta-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 18px;
+  }
+  .meta-chip {
+    font-size: 12px;
+    color: var(--text-dim);
+    background: var(--panel);
+    border: 1px solid var(--border-soft);
+    border-radius: 999px;
+    padding: 3px 12px;
+  }
+  .meta-chip code { font-family: var(--mono); font-size: 11.5px; color: var(--accent); }
+
+  h2 {
+    font-size: 22px;
+    font-weight: 750;
+    margin: 56px 0 6px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border-soft);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 600;
+    background: var(--accent-soft);
+    border-radius: 6px;
+    padding: 2px 8px;
+  }
+  h3 {
+    font-size: 16.5px;
+    font-weight: 700;
+    margin: 32px 0 8px;
+    color: var(--text);
+  }
+  h4 {
+    font-size: 14px;
+    font-weight: 700;
+    margin: 20px 0 6px;
+    color: var(--text-dim);
+  }
+  p { margin: 10px 0; }
+  ul, ol { margin: 8px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  strong { color: var(--text); }
+  .dim { color: var(--text-dim); }
+
+  code {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    background: var(--panel-2);
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: #c8d8ec;
+    word-break: break-all;
+  }
+  pre {
+    background: var(--panel);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    padding: 14px 18px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    line-height: 1.65;
+  }
+  pre code { background: none; border: none; padding: 0; }
+
+  .pathref {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--purple);
+    background: var(--purple-soft);
+    border: 1px solid rgba(181, 140, 255, 0.25);
+    border-radius: 4px;
+    padding: 1px 6px;
+    white-space: nowrap;
+  }
+
+  /* ---------- callouts ---------- */
+  .callout {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    background: var(--panel);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 16px 0;
+  }
+  .callout.warn { border-left-color: var(--amber); }
+  .callout.danger { border-left-color: var(--red); }
+  .callout.good { border-left-color: var(--green); }
+  .callout .callout-title {
+    font-weight: 700;
+    font-size: 13.5px;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .callout p:last-child { margin-bottom: 0; }
+
+  /* ---------- badges ---------- */
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    border-radius: 5px;
+    padding: 1px 8px;
+    white-space: nowrap;
+    vertical-align: 1px;
+  }
+  .badge.keep { color: var(--green); background: var(--green-soft); border: 1px solid rgba(76,195,138,0.35); }
+  .badge.replace { color: var(--amber); background: var(--amber-soft); border: 1px solid rgba(229,181,103,0.35); }
+  .badge.remove { color: var(--red); background: var(--red-soft); border: 1px solid rgba(240,122,122,0.35); }
+  .badge.simplify { color: var(--accent); background: var(--accent-soft); border: 1px solid rgba(110,168,254,0.35); }
+  .badge.p0 { color: #fff; background: #c0392b; }
+  .badge.p1 { color: #fff; background: #b7671e; }
+  .badge.p2 { color: #222; background: #d3b254; }
+  .badge.p3 { color: var(--text-dim); background: var(--panel-2); border: 1px solid var(--border); }
+
+  /* ---------- tables ---------- */
+  .table-wrap { overflow-x: auto; margin: 16px 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    background: var(--panel);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  th {
+    text-align: left;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    background: var(--panel-2);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border-soft);
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  td code, th code { font-size: 11.5px; }
+  td.center, th.center { text-align: center; }
+
+  /* ---------- matrix ---------- */
+  .m-ok { color: var(--green); font-weight: 700; }
+  .m-warn { color: var(--amber); font-weight: 700; }
+  .m-ng { color: var(--red); font-weight: 700; }
+  .m-na { color: var(--text-faint); }
+
+  /* ---------- problem cards ---------- */
+  .problem {
+    background: var(--panel);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin: 14px 0;
+  }
+  .problem .p-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .problem .p-title { font-weight: 700; font-size: 15px; }
+  .problem .p-refs { font-size: 12px; color: var(--text-faint); }
+  .problem p { margin: 6px 0; font-size: 14px; }
+  .problem .impact {
+    font-size: 13px;
+    color: var(--amber);
+  }
+
+  /* ---------- diagrams ---------- */
+  .diagram {
+    background: var(--panel);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    padding: 22px;
+    margin: 18px 0;
+    overflow-x: auto;
+  }
+  .layers { display: flex; flex-direction: column; gap: 10px; min-width: 620px; }
+  .layer {
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .layer-label {
+    width: 118px;
+    flex-shrink: 0;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    letter-spacing: 0.02em;
+  }
+  .layer-boxes { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; }
+  .lbox {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 12px;
+    font-family: var(--mono);
+    background: var(--panel-2);
+    color: var(--text);
+    display: flex;
+    align-items: center;
+  }
+  .lbox.durable { border-color: rgba(110,168,254,0.5); background: var(--accent-soft); }
+  .lbox.memory { border-color: rgba(229,181,103,0.45); background: var(--amber-soft); }
+  .lbox.msg { border-color: rgba(181,140,255,0.45); background: var(--purple-soft); }
+  .lbox.storage { border-color: rgba(76,195,138,0.45); background: var(--green-soft); }
+  .lbox.danger { border-color: rgba(240,122,122,0.55); background: var(--red-soft); }
+  .layer-arrow {
+    text-align: center;
+    color: var(--text-faint);
+    font-size: 11px;
+    padding-left: 128px;
+    letter-spacing: 0.15em;
+  }
+
+  .flow {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 14px 0;
+    min-width: 600px;
+  }
+  .fstep {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 13px;
+    font-size: 12.5px;
+    background: var(--panel-2);
+    white-space: nowrap;
+  }
+  .fstep small { display: block; font-size: 10.5px; color: var(--text-faint); font-family: var(--mono); }
+  .fstep.fence { border-color: rgba(240,122,122,0.55); }
+  .fstep.net { border-color: rgba(76,195,138,0.5); }
+  .farrow { color: var(--text-faint); font-size: 15px; }
+
+  .legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 10px;
+  }
+  .legend span::before {
+    content: "";
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    margin-right: 6px;
+    vertical-align: -1px;
+  }
+  .legend .lg-durable::before { background: var(--accent); }
+  .legend .lg-memory::before { background: var(--amber); }
+  .legend .lg-msg::before { background: var(--purple); }
+  .legend .lg-storage::before { background: var(--green); }
+
+  /* ---------- two-col compare ---------- */
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 18px 0;
+  }
+  .compare .col {
+    background: var(--panel);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .compare .col h4 {
+    margin: 0 0 10px;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+  }
+  .compare .col.current { border-top: 3px solid var(--red); }
+  .compare .col.proposed { border-top: 3px solid var(--green); }
+  .compare ul { margin: 0; padding-left: 18px; font-size: 13.5px; }
+
+  /* ---------- phases ---------- */
+  .phase {
+    display: flex;
+    gap: 16px;
+    margin: 16px 0;
+  }
+  .phase .ph-num {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: var(--accent-soft);
+    border: 1px solid rgba(110,168,254,0.4);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .phase .ph-body {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    padding: 14px 18px;
+  }
+  .phase .ph-title { font-weight: 700; font-size: 14.5px; margin-bottom: 4px; }
+  .phase .ph-risk { font-size: 12px; margin-top: 8px; }
+
+  footer {
+    margin-top: 80px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-soft);
+    color: var(--text-faint);
+    font-size: 12.5px;
+  }
+
+  @media (max-width: 960px) {
+    nav.toc { display: none; }
+    main { padding: 32px 20px 80px; }
+    .compare { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc">
+  <div class="brand"><strong>MiyulabMD</strong> specs</div>
+  <ul>
+    <li><a href="#overview">概要と背景</a></li>
+    <li><a href="#current">1. 現状アーキテクチャ</a></li>
+    <li><a class="l2" href="#current-storage">1.1 ストレージ 3 層</a></li>
+    <li><a class="l2" href="#current-idb">1.2 IndexedDB v4 スキーマ</a></li>
+    <li><a class="l2" href="#current-authority">1.3 権威・フェンス機構</a></li>
+    <li><a class="l2" href="#current-readers">1.4 読み取り・書き込み経路</a></li>
+    <li><a class="l2" href="#current-server">1.5 サーバー側データモデル</a></li>
+    <li><a class="l2" href="#current-sync">1.6 Server ↔ クライアント同期構造</a></li>
+    <li><a href="#problems">2. 現状の問題点</a></li>
+    <li><a href="#ux">3. 目指す UX</a></li>
+    <li><a class="l2" href="#ux-speed">3.3 応答速度の要件</a></li>
+    <li><a href="#design">4. 新設計の提案</a></li>
+    <li><a class="l2" href="#design-principles">4.1 設計原則</a></li>
+    <li><a class="l2" href="#design-split">4.2 表示/編集キャッシュの分離</a></li>
+    <li><a class="l2" href="#design-edit">4.3 編集キャッシュ = Yjs + y-indexeddb</a></li>
+    <li><a class="l2" href="#design-authority">4.4 表示キャッシュの権威モデル</a></li>
+    <li><a class="l2" href="#design-inventory">4.5 既存機構の仕分け</a></li>
+    <li><a class="l2" href="#design-flow">4.6 新しい読み書きフロー</a></li>
+    <li><a class="l2" href="#design-repair">4.7 purge 中断の自己修復</a></li>
+    <li><a class="l2" href="#design-tabs">4.8 タブ間調停の簡素化</a></li>
+    <li><a href="#matrix">5. 機能マトリクス</a></li>
+    <li><a href="#migration">6. 移行計画</a></li>
+    <li><a href="#files">7. 参照ファイル一覧</a></li>
+  </ul>
+</nav>
+
+<main>
+  <div class="doc-head">
+    <div class="kicker">MiyulabMD — Offline Mode Redesign</div>
+    <h1>オフラインモードの再設計</h1>
+    <p class="lead">
+      現行のオフラインキャッシュは「正しさ」を保つために巨大な権威フェンス機構を抱えており、
+      その複雑さ自体が障害の温床になっている。本書はデータモデル（サーバー／IndexedDB／同期構造）の
+      整理、実コードから読み取れる問題点、目指す UX、そして
+      <strong>「表示キャッシュと編集キャッシュの完全分離」</strong>を軸にした再設計をまとめる。
+    </p>
+    <div class="meta-row">
+      <span class="meta-chip">対象: <code>apps/web</code> フロントエンド</span>
+      <span class="meta-chip">主な参照: <code>src/lib/offline-cache.ts</code> (約 3,800 行)</span>
+      <span class="meta-chip">関連仕様: <code>docs/offline-pwa.md</code></span>
+      <span class="meta-chip">直近の障害: PR #117「Offline cache scope invalidated」</span>
+    </div>
+  </div>
+
+  <div class="callout">
+    <div class="callout-title">要約（TL;DR）</div>
+    <p>
+      現行設計は「キャッシュを fail-closed な権威として扱い、全トランザクションを epoch でフェンスする」
+      方式で、安全側に倒しすぎた結果、<strong>中断した purge が durable な <code>:purging</code>
+      墓標を残してキャッシュ全体を恒久的に塞ぐ</strong>、<strong>タブ間の suspend 通知が
+      解除されない</strong>、<strong>表示経路がキャッシュ権威の失敗で道連れになる</strong>という
+      問題を抱えている。推奨案は、<strong>「ネットワーク優先・キャッシュはフォールバック」
+      に倒し、durable に残す権威を「拒否台帳」と「purge 墓標（自己修復つき）」だけに限定する</strong>
+      方式への段階的移行である。さらにキャッシュを<strong>「表示キャッシュ」と
+      「編集キャッシュ」に完全分離</strong>し、編集はサーバーと同じ Yjs に任せる
+      （ローカルは <code>y-indexeddb</code>、対象は「編集権限が自分だけ」のノートに限定）。
+      同期・マージの複雑さは Yjs に委譲し、自前の権威フェンスは表示キャッシュ側の
+      薄い拒否台帳だけに縮退できる。
+    </p>
+  </div>
+
+  <!-- ================================================================ -->
+  <h2 id="current"><span class="num">1</span>現状のアーキテクチャ</h2>
+  <p class="dim">
+    以下は実コードに基づく整理である。中心は <span class="pathref">apps/web/src/lib/offline-cache.ts</span>
+    （約 3,800 行）で、ストレージ・権威管理・タブ間調停のほぼ全てを 1 ファイルに保持している。
+  </p>
+
+  <h3 id="current-storage">1.1 ストレージ 3 層</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>層</th><th>名前 / 場所</th><th>格納物</th><th>参照コード</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>IndexedDB</strong></td>
+          <td><code>miyulabmd-offline-cache</code> v4</td>
+          <td>ノートメタデータ・フォルダ構造・ノート一覧・権威メタデータ全般</td>
+          <td><code>offline-cache.ts:13-18, 1083-1128</code></td>
+        </tr>
+        <tr>
+          <td><strong>OPFS</strong></td>
+          <td><code>miyulabmd-offline-cache-v1/&lt;user&gt;/notes/&lt;note&gt;/&lt;uuid&gt;.{md,image}</code></td>
+          <td>ノート本文（.md）・添付画像バイナリ（.image）。イミュータブルファイル＋IDB 参照スワップ</td>
+          <td><code>offline-cache.ts:32, 2923-3014</code></td>
+        </tr>
+        <tr>
+          <td><strong>Cache Storage</strong></td>
+          <td><code>miyulabmd-precache-*</code>（Workbox）</td>
+          <td>アプリ shell（index.html / JS / CSS / icon）。ナビゲーションは network-first で SSR HTML は保存しない</td>
+          <td><code>service-worker/sw.ts:17-72</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="dim">
+    この 3 層分割自体は <code>docs/offline-pwa.md</code> §3.2 の合意どおりで、新設計でも維持する。
+  </p>
+
+  <h3 id="current-idb">1.2 IndexedDB v4 のスキーマ</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>ストア</th><th>キー</th><th>内容</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>notes</code></td>
+          <td><code>b64(userId):b64(noteId)</code></td>
+          <td><code>{noteId, note(本文除く), fileName(OPFS参照), cachedAt}</code></td>
+        </tr>
+        <tr>
+          <td><code>folders</code></td>
+          <td><code>JSON.stringify([userId, folderId])</code></td>
+          <td><code>{folderId, folder: FolderAccess(子・crumbs含む), cachedAt}</code></td>
+        </tr>
+        <tr>
+          <td><code>note-lists</code></td>
+          <td><code>b64(userId)</code></td>
+          <td><code>{notes: NoteSummary[], cachedAt}</code>（ユーザー全件 1 レコード）</td>
+        </tr>
+        <tr>
+          <td><code>metadata</code></td>
+          <td>各種プレフィックス（下表）</td>
+          <td><code>{key, value}</code> — 権威・参照・拒否情報の雑多な集合</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>metadata ストアのキー一覧（<code>offline-cache.ts:19-31, 2034-2039</code>）</h4>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>キー / プレフィックス</th><th>意味</th><th>分類</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>viewer-id</code></td><td>前回閲覧ユーザー（cached viewer 復元用）</td><td>参照情報</td></tr>
+        <tr><td><code>drive-root:&lt;user&gt;</code></td><td>ドライブルートの正規フォルダ ID</td><td>参照情報</td></tr>
+        <tr><td><code>device-epoch</code></td><td>端末全体の epoch（UUID または "0"）</td><td>権威</td></tr>
+        <tr><td><code>device-clear-state</code></td><td><code>"active"</code> / <code>"purging"</code></td><td>権威</td></tr>
+        <tr><td><code>user-epoch:&lt;user&gt;</code></td><td>ユーザー epoch（UUID / "0" / <code>&lt;uuid&gt;:purging</code>）</td><td>権威</td></tr>
+        <tr><td><code>denied-note:&lt;user&gt;:&lt;note&gt;</code></td><td>ノート拒否マーカー <code>{denied, generation}</code>（canonical・shortId 両方）</td><td>権威</td></tr>
+        <tr><td><code>note-order:&lt;user&gt;</code></td><td>ノート拒否のシーケンスカウンタ</td><td>権威</td></tr>
+        <tr><td><code>folder-state:&lt;user&gt;:&lt;id&gt;</code></td><td>フォルダ拒否マーカー <code>{denied, folderId, generation}</code></td><td>権威</td></tr>
+        <tr><td><code>denied-folder:&lt;user&gt;:&lt;id&gt;</code></td><td>旧形式フォルダ拒否（legacy、読み取りのみ残存）</td><td>権威</td></tr>
+        <tr><td><code>folder-denial-sequence:&lt;user&gt;</code></td><td>フォルダ拒否のシーケンスカウンタ</td><td>権威</td></tr>
+        <tr><td><code>image:&lt;u&gt;:&lt;n&gt;:&lt;i&gt;</code></td><td>画像参照 <code>{fileName, mime}</code> または <code>"denied"</code></td><td>参照＋権威</td></tr>
+        <tr><td><code>resource-order:image:&lt;u&gt;:&lt;n&gt;:&lt;i&gt;</code></td><td>画像の順序カウンタ</td><td>権威</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="dim">
+    単一の <code>metadata</code> ストアに「参照情報」「ユーザー権威」「端末権威」「拒否台帳」
+    「順序カウンタ」が混在しており、purge 時の削除対象をプレフィックス走査で個別に列挙している
+    （<code>clearUserRecords</code>: <code>offline-cache.ts:1156-1186</code>）。
+    新しいマーカー種別を追加すると purge 対象リストの更新を忘れやすい構造。
+  </p>
+
+  <h3 id="current-authority">1.3 権威・フェンス機構</h3>
+  <p>
+    現行設計の核心は「<strong>キャッシュへのアクセス全てを、捕捉した権威（scope）でフェンスする</strong>」
+    という fail-closed モデルである。権威は 3 層にまたがって保持される。
+  </p>
+
+  <div class="diagram">
+    <div class="layers">
+      <div class="layer">
+        <div class="layer-label">Durable<br>（IDB metadata）</div>
+        <div class="layer-boxes">
+          <span class="lbox durable">device-epoch</span>
+          <span class="lbox durable">user-epoch:&lt;user&gt;</span>
+          <span class="lbox durable">device-clear-state</span>
+          <span class="lbox danger">&lt;uuid&gt;:purging 墓標</span>
+          <span class="lbox durable">denied-note / folder-state マーカー</span>
+          <span class="lbox durable">note-order / folder-denial-sequence / image order</span>
+        </div>
+      </div>
+      <div class="layer">
+        <div class="layer-label">Cross-tab</div>
+        <div class="layer-boxes">
+          <span class="lbox msg">BroadcastChannel: miyulabmd-offline-cache-lifecycle</span>
+          <span class="lbox msg">BroadcastChannel: miyulabmd-identity-invalidation</span>
+          <span class="lbox msg">Web Locks: :global (shared/exclusive)</span>
+          <span class="lbox msg">Web Locks: :user:&lt;id&gt; (shared/exclusive)</span>
+          <span class="lbox msg">Web Locks: mydrive-prefetch:&lt;id&gt;</span>
+        </div>
+      </div>
+      <div class="layer">
+        <div class="layer-label">In-memory<br>（タブ内のみ）</div>
+        <div class="layer-boxes">
+          <span class="lbox memory">globalSuspended</span>
+          <span class="lbox memory">globalLifetime</span>
+          <span class="lbox memory">suspendedUsers</span>
+          <span class="lbox memory">userLifetimes / clearLifetimes</span>
+          <span class="lbox memory">pendingUserOperations / pendingUserWrites</span>
+          <span class="lbox memory">openUserCaches / userClearOperations</span>
+          <span class="lbox memory">noteGenerations / currentShortIds / nextGeneration</span>
+          <span class="lbox memory">databaseScopes (WeakMap)</span>
+          <span class="lbox memory">epochDatabase singleton</span>
+        </div>
+      </div>
+    </div>
+    <div class="legend">
+      <span class="lg-durable">永続化された権威</span>
+      <span class="lg-memory">タブ内の揮発状態</span>
+      <span class="lg-msg">タブ間調停</span>
+      <span class="lg-storage">実データ</span>
+    </div>
+  </div>
+
+  <h4>1 回のキャッシュ操作で起きること</h4>
+  <p>
+    <code>openOfflineCache</code> でハンドルを開くと、全操作がロック＋前後 2 回のスコープ検証で
+    ラップされる（<code>offline-cache.ts:3744-3797</code>）。
+  </p>
+  <div class="diagram">
+    <div class="flow">
+      <span class="fstep">openOfflineCache<small>shared user lock ⊂ shared global lock</small></span>
+      <span class="farrow">→</span>
+      <span class="fstep">scope 捕捉<small>readScopeEpochs → composeEpoch</small></span>
+      <span class="farrow">→</span>
+      <span class="fstep fence">assertScope（前）<small>epoch/lifetime/suspend 検証</small></span>
+      <span class="farrow">→</span>
+      <span class="fstep">操作本体<small>guardTransaction が書込txn内で再検証</small></span>
+      <span class="farrow">→</span>
+      <span class="fstep fence">assertScope（後）</span>
+      <span class="farrow">→</span>
+      <span class="fstep net">呼び出し側の公開境界<small>lifetime/generation/suspend 再確認</small></span>
+    </div>
+  </div>
+  <ul>
+    <li>
+      <strong>scope</strong> = <code>{userId, epoch, lifetime}</code>。epoch は
+      <code>composeEpoch(device-epoch, user-epoch)</code> の base64 化した合成値
+      （<code>offline-cache.ts:473-479</code>）。
+    </li>
+    <li>
+      <strong>guardTransaction</strong>（<code>offline-cache.ts:707-742</code>）は全書き込み
+      トランザクション内で 3 つのメタデータキーを再読込し、epoch 不一致・<code>:purging</code>・
+      <code>device-clear-state ≠ active</code>・suspend・lifetime 不一致なら
+      <code>transaction.abort()</code> する。IDB の直列化を利用したフェンス。
+    </li>
+    <li>
+      <strong>invalidateRealm / invalidateDeviceRealm</strong>（<code>offline-cache.ts:400-423</code>）は
+      lifetime を進め、進行中操作を abort し、開いているハンドルを close する。
+      BroadcastChannel で他タブにも伝搬する。
+    </li>
+    <li>
+      拒否系は個別の順序機構を持つ：ノートはインメモリ世代（<code>note-access-order.ts</code>）
+      ＋ durable な <code>note-order</code> シーケンス、フォルダは durable な
+      <code>folder-denial-sequence</code>、画像は <code>resource-order:image:*</code> カウンタ。
+    </li>
+  </ul>
+
+  <h3 id="current-readers">1.4 読み取り・書き込み経路</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>経路</th><th>ファイル</th><th>流れ</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>ホーム（フォルダ＋ノート一覧）</td>
+          <td><span class="pathref">home-metadata-reader.ts</span></td>
+          <td>scope/lifetime/フォルダ世代を捕捉 → <code>fetchNotes</code>＋<code>fetchFolder</code> 並列 → scope 検証 → キャッシュ保存 → <strong>キャッシュ読み戻しによる拒否射影</strong> → 返却</td>
+        </tr>
+        <tr>
+          <td>キャッシュ専用ドライブ</td>
+          <td><span class="pathref">cached-drive-reader.ts</span></td>
+          <td>ノート一覧 → フォルダの順で読み、各境界で suspend/signal/所有権を確認</td>
+        </tr>
+        <tr>
+          <td>ノート本文</td>
+          <td><span class="pathref">note-read-session.ts</span></td>
+          <td>ordering token → scope → note authority 捕捉 → fetch（<code>note-request.ts</code> の機内共有）→ 通信失敗/5xx はキャッシュ fallback → 403/404 は <code>denyNote</code> 永続化 → 公開直前に scope/authority 再検証</td>
+        </tr>
+        <tr>
+          <td>添付画像</td>
+          <td><span class="pathref">attached-images.ts</span></td>
+          <td>in-flight 共有 → fetch → 401/403/404 は <code>denyImage</code> → 成功時は OPFS 新ファイル→IDB 参照スワップ</td>
+        </tr>
+        <tr>
+          <td>バックグラウンド prefetch</td>
+          <td><span class="pathref">mydrive-prefetch.ts</span> / <span class="pathref">mydrive-prefetch-coordinator.ts</span></td>
+          <td>起動・online・可視復帰・5分周期・drive-changed で発火 → Web Locks <code>ifAvailable</code> でタブ間排他 → tree → 各フォルダ → 一覧 → 本文（updatedAt が新しいものは skip）→ 画像</td>
+        </tr>
+        <tr>
+          <td>ログアウト/切替</td>
+          <td><span class="pathref">identity-lifecycle.ts</span> / <span class="pathref">viewer-context.ts</span></td>
+          <td><code>clearOfflineCacheUser</code> → invalidateRealm → exclusive lock → IDB 削除＋<code>:purging</code> マーカー → OPFS 削除 → epoch 確定</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 id="current-server">1.5 サーバー側データモデル</h3>
+  <p>
+    サーバー（<span class="pathref">apps/worker</span>）は 3 種類のストレージを持つ。
+    スキーマの正本は <code>apps/worker/src/db/schema.sql</code> で、先頭に
+    <strong>「本文のソース・オブ・トゥルースは DocumentRoom Durable Object」</strong>と明記されている。
+    つまり D1 の <code>notes.markdown_snapshot</code> は権威ではなく<strong>射影（projection）</strong>であり、
+    一覧・検索・共有ビューのためにサーバー自身が使う表示用コピーである。
+  </p>
+  <div class="diagram">
+    <div class="layers">
+      <div class="layer">
+        <div class="layer-label">D1（SQLite）</div>
+        <div class="layer-boxes">
+          <span class="lbox storage">notes<small>id, owner_id, title, folder, permission,<br>read_scope, write_scope, <strong>markdown_snapshot</strong>, layer</small></span>
+          <span class="lbox storage">folders<small>owner_id, folder, para_bucket, scheme_id</small></span>
+          <span class="lbox storage">users / api_tokens</span>
+          <span class="lbox durable">note_collaborators<small>note_id × user_id × role</small></span>
+          <span class="lbox durable">access_grants / folder_policies</span>
+          <span class="lbox storage">images<small>note_id → r2_key</small></span>
+          <span class="lbox storage">note_links / note_revisions / note_edit_events</span>
+        </div>
+      </div>
+      <div class="layer">
+        <div class="layer-label">DocumentRoom DO<br>（ノート毎）</div>
+        <div class="layer-boxes">
+          <span class="lbox durable">Y.Doc "markdown" Y.Text<small>本文の唯一の権威</small></span>
+          <span class="lbox durable">storage "yjs-update"<small>マージ済み Yjs update（バイナリ）</small></span>
+          <span class="lbox msg">storage "snapshot-pending" + alarm<small>D1 への outbox（3秒デバウンス）</small></span>
+        </div>
+      </div>
+      <div class="layer">
+        <div class="layer-label">R2</div>
+        <div class="layer-boxes">
+          <span class="lbox storage">画像バイナリ<small>images.r2_key で参照</small></span>
+        </div>
+      </div>
+    </div>
+    <div class="legend">
+      <span class="lg-storage">データ</span>
+      <span class="lg-durable">権威・権限</span>
+      <span class="lg-msg">非同期ジョブ</span>
+    </div>
+  </div>
+  <p class="dim">
+    重要な事実: <strong>サーバー側の編集モデルは最初から Yjs（CRDT）である</strong>
+    （<code>durable-objects/DocumentRoom.ts:12,129,525-580</code>、
+    <code>durable-objects/snapshot-persistence.ts</code>）。
+    クライアントのオフライン編集に独自の差分マージや世代フェンスを発明する必要はなく、
+    ローカルに Y.Doc を持てば Yjs 自身がマージを解決する。
+  </p>
+
+  <h3 id="current-sync">1.6 Server ↔ クライアント同期構造（現状）</h3>
+  <p>
+    現在、同期は<strong>目的の異なる 2 チャンネル</strong>に分かれている。
+    オフラインキャッシュの複雑さの本質は、「メタデータ面は手動コピー、本文面は
+    オンライン限定の生同期」という非対称構造を、手製の権威フェンスで糊付けしている点にある。
+  </p>
+  <div class="diagram">
+    <div class="layers">
+      <div class="layer">
+        <div class="layer-label">Server</div>
+        <div class="layer-boxes">
+          <span class="lbox durable">DocumentRoom DO<br>Y.Doc（権威）</span>
+          <span class="farrow">⇄</span>
+          <span class="lbox msg">outbox + alarm<small>snapshot-pending</small></span>
+          <span class="farrow">→</span>
+          <span class="lbox storage">D1 notes.markdown_snapshot<small>射影</small></span>
+          <span class="lbox storage">D1 folders / lists</span>
+        </div>
+      </div>
+      <div class="layer-arrow">│<br>│<br>│</div>
+      <div class="layer">
+        <div class="layer-label">経路A: REST/JSON<br>（メタデータ）</div>
+        <div class="layer-boxes">
+          <span class="lbox">GET /api/notes, /api/folders</span>
+          <span class="farrow">→</span>
+          <span class="lbox">表示層</span>
+          <span class="farrow">→</span>
+          <span class="lbox storage">IDB v4<br>notes / folders / note-lists</span>
+          <span class="lbox storage">OPFS .md / .image</span>
+        </div>
+      </div>
+      <div class="layer">
+        <div class="layer-label">経路B: y-websocket<br>（本文・編集）</div>
+        <div class="layer-boxes">
+          <span class="lbox">collaboration.ts<br>WebsocketProvider</span>
+          <span class="farrow">⇄</span>
+          <span class="lbox msg">/ws/notes/:id<small>syncProtocol + awareness</small></span>
+          <span class="farrow">⇄</span>
+          <span class="lbox durable">DocumentRoom DO</span>
+        </div>
+      </div>
+      <div class="layer">
+        <div class="layer-label">ギャップ</div>
+        <div class="layer-boxes">
+          <span class="lbox danger">経路Bはローカル永続化なし → オフライン編集不可、切断で再同期はサーバー任せ</span>
+          <span class="lbox danger">経路Aの本文は OPFS の .md コピー → 経路Bの Y.Doc と別物（二重の「本文」）</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ul>
+    <li>
+      <strong>経路A（REST → IDB/OPFS）</strong>は一方向の手動コピー。
+      「いつ・何を・どの世代で」キャッシュするかを自前で管理するため、
+      epoch/lifetime/purging 墓標という巨大な整合機構が必要になった。
+    </li>
+    <li>
+      <strong>経路B（y-websocket）</strong>は既に正しい形をしている（CRDT 双方向同期）が、
+      <code>createYjsSession</code>（<code>lib/collaboration.ts:99-161</code>）の Y.Doc は
+      メモリ上にしか存在せず、ページを閉じると揮発する。
+      オフライン閲覧用の本文は別経路（OPFS <code>.md</code>）から来るため、
+      <strong>「編集用の本文」と「表示用の本文」が 2 つ存在する</strong>。
+    </li>
+    <li>
+      この二重性こそが「規模がデカすぎる」感覚の正体である。
+      新設計ではこの 2 チャンネルを<strong>整理して分離</strong>する（§4.2）。
+    </li>
+  </ul>
+
+  <!-- ================================================================ -->
+  <h2 id="problems"><span class="num">2</span>現状の問題点</h2>
+  <p class="dim">
+    実コードから読み取れる問題を、障害への影響度順に列挙する。多くは「正しさを守るための機構」
+    そのものが新たな故障モードを生んでいる。
+  </p>
+
+  <div class="problem">
+    <div class="p-head">
+      <span class="badge p0">P0</span>
+      <span class="p-title">中断した purge が durable な <code>:purging</code> 墓標を残し、キャッシュが永久に塞がれる</span>
+    </div>
+    <p>
+      <code>purgeOfflineCacheUser</code> は削除トランザクション内で <code>user-epoch:&lt;user&gt;</code> に
+      <code>"&lt;uuid&gt;:purging"</code> を書き込み（<code>offline-cache.ts:1157</code>）、
+      OPFS 削除の後、<strong>別トランザクション</strong>で <code>&lt;uuid&gt;</code> へ書き換える
+      （<code>offline-cache.ts:1461-1466</code>）。この間にタブが死ぬと墓標が残り、
+      <code>readScopeEpochs</code> → <code>isPurgingEpoch</code> が永久に
+      <code>invalidatedError()</code>（<code>"Offline cache scope invalidated"</code> AbortError）を
+      投げ続ける。復旧手段は手動の端末キャッシュ削除のみで、<strong>自己修復経路が存在しない</strong>。
+    </p>
+    <p>
+      端末全体削除も同型で、<code>purgeOfflineCacheDevice</code> は
+      <code>updateDeviceState(PURGING)</code>（:1580）→ 削除 →
+      <code>updateDeviceState(ACTIVE, epoch)</code>（:1588）の間に死ぬと
+      <code>device-clear-state="purging"</code> が残り、<strong>全ユーザーの全キャッシュ操作が恒久的に失敗</strong>する。
+    </p>
+    <p class="impact">影響: 直近の「フォルダ一覧が一切表示できない」障害の根本原因候補。PR #117 は表示側の緩和のみ。</p>
+  </div>
+
+  <div class="problem">
+    <div class="p-head">
+      <span class="badge p0">P0</span>
+      <span class="p-title">タブ間で suspend が解除されない（broadcast による伝搬毒）</span>
+    </div>
+    <p>
+      <code>globalSuspended</code> を <code>false</code> に戻すコードは purge 実行タブ内の
+      <code>purgeOfflineCacheDevice</code> だけ（<code>offline-cache.ts:1589</code>）。
+      <code>device-invalidate</code> の BroadcastChannel を受けた他タブは
+      <code>invalidateDeviceRealm()</code> で <code>globalSuspended = true</code> になるが、
+      <strong>戻す経路がなく</strong>、ページリロードまで全キャッシュ操作が失敗する。
+      リロードしても durable な <code>device-clear-state</code> が残っていれば同じく塞がれる。
+    </p>
+    <p>
+      <code>suspendedUsers</code> も同様で、<code>suspendedUsers.delete</code> は
+      <code>purgeOfflineCacheUser</code> の成功時のみ（:1471）。
+      拒否書き込みの失敗で <code>suspendOfflineCacheUser</code> が呼ばれると
+      （<code>note-read-session.ts:504-520</code> 等）、generation=null の拒否イベントが
+      broadcast され、<strong>受信した全タブでも同ユーザーが suspend される</strong>
+      （<code>handleDenialLifecycleMessage</code>: <code>offline-cache.ts:425-432</code>）。
+      しかもインメモリなのでリロードすると fail-closed の保証自体が消える —— 片方では「解除不能」、
+      もう片方では「保証が消える」と、両方向に壊れている。
+    </p>
+    <p class="impact">影響: 一時的な IndexedDB エラーが、全タブのキャッシュをセッション終了まで殺す。</p>
+  </div>
+
+  <div class="problem">
+    <div class="p-head">
+      <span class="badge p1">P1</span>
+      <span class="p-title">表示経路がキャッシュ権威に結合していて、権威の失敗が UI を殺す</span>
+    </div>
+    <p>
+      <code>readHomeMetadata</code> はネットワーク取得成功後も
+      <code>assertOfflineCacheScope(scope)</code>（<code>home-metadata-reader.ts:397-399</code>）と
+      <code>validateHomePublication</code>（:237-258, 422-428）で scope を再検証し、
+      失敗すると AbortError が読み取り全体を潰す。さらに <code>projectCachedHomeMetadata</code>
+      がネットワーク結果を<strong>キャッシュから読み戻して射影</strong>するため、
+      キャッシュ読み取りの失敗がオンライン表示に波及する。
+      HomePage 側は <code>invalidationRetryRef</code> による 1 回リトライで対症療法を入れている
+      （<code>HomePage.tsx:539-596</code>）が、これは権威機構が生み出した例外へのバンドエイドである。
+      コメント <code>"Cache availability must not gate healthy network display"</code>
+      （<code>offline-cache.ts:589</code>）と実際の挙動が矛盾している。
+    </p>
+    <p class="impact">影響: 「ネットワークは正常なのにフォルダ一覧が出ない」という最悪の UX 障害。</p>
+  </div>
+
+  <div class="problem">
+    <div class="p-head">
+      <span class="badge p1">P1</span>
+      <span class="p-title">状態機械が複雑すぎる — 「世代」が 4 系統、検証が全 await 境界に分散</span>
+    </div>
+    <p>
+      単一ファイルにこれだけの「世代」概念が同居している:
+    </p>
+    <ul>
+      <li><strong>epoch 系</strong>: device-epoch × user-epoch の合成 scope epoch</li>
+      <li><strong>lifetime 系</strong>: userLifetimes / clearLifetimes / globalLifetime（全てインメモリ）</li>
+      <li><strong>durable 順序系</strong>: note-order / folder-denial-sequence / resource-order:image</li>
+      <li><strong>インメモリ順序系</strong>: noteGenerations / nextGeneration / currentShortIds（<code>note-access-order.ts</code>）</li>
+    </ul>
+    <p>
+      全キャッシュメソッドが <code>isUserSuspended</code> / <code>currentUserLifetime</code> /
+      <code>currentNoteGeneration</code> の検査を各 await の前後に手書きで繰り返す
+      （例: <code>getNote</code> <code>offline-cache.ts:3430-3490</code> は同じチェックを 6 回）。
+      <code>biome-ignore noExcessiveCognitiveComplexity</code> が 4 箇所（:3281, :3333, :3430, :3571）。
+      決定台帳 <code>docs/offline-pwa-decisions.md</code> の D45, D46, D49, D57, D58, D63, D72, D76,
+      D119 は、いずれも「この境界のチェックが抜けていた」型の修正であり、
+      <strong>構造的に見落としが再発する設計</strong>であることを示している。
+    </p>
+  </div>
+
+  <div class="problem">
+    <div class="p-head">
+      <span class="badge p2">P2</span>
+      <span class="p-title">fail-closed の保証がリロードで消える / セッション中は解除不能</span>
+    </div>
+    <p>
+      <code>suspendedUsers</code> はインメモリのみ。拒否マーカーの永続化失敗による suspend
+      （安全側の停止）は再起動すると存在しなかったことになり、仕様書 §9.3 の
+      「I/O が再び成功しただけでは再開しない」という意図と矛盾する。
+      逆にセッション中は purge 成功以外に解除経路がなく、一時エラーで死んだキャッシュは
+      ユーザー操作なしに復帰しない。
+    </p>
+  </div>
+
+  <div class="problem">
+    <div class="p-head">
+      <span class="badge p2">P2</span>
+      <span class="p-title">metadata ストアの雑多さと、purge 削除リストの手管理</span>
+    </div>
+    <p>
+      <code>clearUserRecords</code>（<code>offline-cache.ts:1156-1186</code>）は削除対象キーを
+      プレフィックス列挙で手書きしており、新しいマーカー種別の追加時にここを更新し忘れると
+      ユーザーのキャッシュ消去が不完全になる。権威情報と参照情報が同居しているため
+      「何を消せば purge 完了か」が自明でない。
+    </p>
+  </div>
+
+  <div class="problem">
+    <div class="p-head">
+      <span class="badge p2">P2</span>
+      <span class="p-title">purge が保留中の OPFS 書き込みを待つため、遅延・スタックの余地がある</span>
+    </div>
+    <p>
+      <code>pendingUserWrites</code> を purge が <code>Promise.all</code> で待つ
+      （<code>offline-cache.ts:1454, 1582-1584</code>）。タブを殺せば待ち自体は消えるが、
+      「purge がいつ終わるか分からない」状態をユーザー操作（ログアウト）の前に置く構造。
+    </p>
+  </div>
+
+  <div class="problem">
+    <div class="p-head">
+      <span class="badge p3">P3</span>
+      <span class="p-title">モジュールロード時の副作用と二重 BroadcastChannel</span>
+    </div>
+    <p>
+      <code>void getEpochDatabase()</code>（<code>offline-cache.ts:194</code>）が import 時に
+      DB を開く。ライフサイクル系と identity 系で BroadcastChannel が 2 本
+      （<code>miyulabmd-offline-cache-lifecycle</code> / <code>miyulabmd-identity-invalidation</code>）
+      あり、通知の責務が重複している。また <code>currentShortIds</code> の ID 束縛は
+      タブ内のみで、他タブの束縛は durable マーカー経由でしか追えない。
+    </p>
+  </div>
+
+  <div class="callout warn">
+    <div class="callout-title">問題の構造的理解</div>
+    <p>
+      個々のフェンスは全て「前の障害を防ぐため」に追加された正当な機構である（決定台帳 R01–R04,
+      D22, D125）。しかし結果として、<strong>安全性を守るはずの durable 権威自身が
+      最大の故障モード</strong>になった。fail-closed を「正しさ」ではなく
+      「障害時の UX」として評価し直す必要がある。
+    </p>
+  </div>
+
+  <!-- ================================================================ -->
+  <h2 id="ux"><span class="num">3</span>目指す UX</h2>
+  <p>
+    「ファイルマネージャー（フォルダ階層・ノート一覧）」と「ノート本文」に分けて、
+    各シナリオでの理想的な振る舞いを定義する。大原則: <strong>キャッシュの内部状態が
+    ユーザーの操作をブロックしない。キャッシュの失敗は常に「データがない」として表現し、
+    エラーで画面を殺さない。</strong>
+  </p>
+
+  <h3>3.1 ファイルマネージャー（<code>/</code>, <code>/f/:id</code>）</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th style="width:160px">シナリオ</th><th>理想的な振る舞い</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>オンライン</strong></td>
+          <td>ネットワーク応答をそのまま表示。キャッシュ保存は detach された best-effort で、保存失敗は控えめな警告のみ。表示をブロック・失敗させない。</td>
+        </tr>
+        <tr>
+          <td><strong>オフライン</strong></td>
+          <td>キャッシュ済みのフォルダ階層とノート一覧を読み取り専用で表示。未取得フォルダは「オンラインで開いてください」と案内（空フォルダと区別）。キャッシュ権威の異常は「未キャッシュ」と同じ扱い。</td>
+        </tr>
+        <tr>
+          <td><strong>再オンライン直後</strong></td>
+          <td>現在の表示を維持したままバックグラウンドで再取得し、差分をその場で反映。readonly から編集可能へ昇格。リロード不要。</td>
+        </tr>
+        <tr>
+          <td><strong>複数タブ</strong></td>
+          <td>各タブが独立して読める。一方のタブでキャッシュ削除が起きても、他タブは「キャッシュが空になった」とみなして再取得または案内を表示。伝搬 suspend で殺さない。</td>
+        </tr>
+        <tr>
+          <td><strong>アカウント切替</strong></td>
+          <td>旧ユーザーのキャッシュは削除され、新ユーザーに旧データが一切表示されない。削除が中断しても次回起動時に完了する。</td>
+        </tr>
+        <tr>
+          <td><strong>purge 中断後</strong></td>
+          <td>次回オープン時に自動で purge を完了（またはやり直し）し、「空のキャッシュ」または正常キャッシュとして動作。<strong>永久に AbortError を出さない。</strong></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>3.2 ノート本文（<code>/n/:id</code>, <code>/s/:id</code>）</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th style="width:160px">シナリオ</th><th>理想的な振る舞い</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>オンライン</strong></td>
+          <td>ネットワーク優先。取得成功時はそのまま表示＋非同期でキャッシュ更新。通信失敗/5xx のみキャッシュへフォールバック。</td>
+        </tr>
+        <tr>
+          <td><strong>オフライン</strong></td>
+          <td>キャッシュ済み本文＋画像を読み取り専用で表示、取得日時を明示。未取得ならオンラインで開く案内。</td>
+        </tr>
+        <tr>
+          <td><strong>再オンライン直後</strong></td>
+          <td>バックグラウンドで再検証。権限が継続していれば編集可能に昇格。403/404 を確認したら即座に表示から除去。</td>
+        </tr>
+        <tr>
+          <td><strong>権限拒否（403/404）</strong></td>
+          <td>そのノートを表示とキャッシュの両方から消す。別タブでも次回読み取り時に消える。通信失敗で古い本文を復活させない。<br><span class="dim">許容範囲: キャッシュされた時点では許可されていたデータなので、オフライン中・台帳未読込時の一瞬表示は許容し、オンライン再検証で確実に止める。</span></td>
+        </tr>
+        <tr>
+          <td><strong>編集</strong></td>
+          <td><strong>オフライン編集資格</strong>（所有者 && <code>effectiveWriteScope === "self"</code> && 編集ロックなし）を持つノートは<strong>本文のみ</strong>オフライン編集可能。ローカル Y.Doc に書き、再接続時に Yjs がマージ。それ以外のノート・作成/削除/移動/共有/画像添付はオンライン限定・オフラインは readonly。</td>
+        </tr>
+        <tr>
+          <td><strong>purge 中断後</strong></td>
+          <td>「キャッシュなし」として扱い、オンラインなら普通に再取得して表示できる。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 id="ux-speed">3.3 応答速度の要件 — 「オフライン機構が無かった時代」と同じ速さ</h3>
+  <p>
+    オンライン時の表示速度は、オフライン対応が存在しなかった頃（<code>fetch → render</code> のみ）と
+    同等を維持する。<strong>キャッシュの読み書きは表示のクリティカルパスに乗せない</strong>のが原則。
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>経路</th><th>現行（v4）</th><th>新設計のクリティカルパス</th><th class="center">判定</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>ホーム / フォルダ</td>
+          <td>
+            scope 捕捉（IDB×2）→ fetch → assert（IDB）→ 保存（IDB＋OPFS 本文ファイル書込み）→
+            読み戻し射影（IDB）→ 公開検証（IDB）<br>
+            <small class="dim">home-metadata-reader.ts:363-438 — fetch の前後に計5-6回の IDB/OPFS 往復が直列</small>
+          </td>
+          <td><code>fetch → project(denials) → 表示</code>。保存は detached、台帳は fetch と並列読み込み</td>
+          <td class="center"><span class="m-ok">◎</span> 同等以下</td>
+        </tr>
+        <tr>
+          <td>ノート本文</td>
+          <td>ordering token → scope → authority → fetch → 公開前再検証</td>
+          <td><code>fetch → 表示</code>（拒否時のみ denyNote 書込み）</td>
+          <td class="center"><span class="m-ok">◎</span> 同等</td>
+        </tr>
+        <tr>
+          <td>編集</td>
+          <td>y-websocket 経由の Y.Doc（描画はローカル doc）</td>
+          <td>同じ。y-indexeddb の update 蓄積は非同期でキー入力をブロックしない</td>
+          <td class="center"><span class="m-ok">◎</span> 同等（初回復元は高速化）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li>
+      <strong>クリティカルパスは <code>fetch → display</code> のみ</strong>。
+      拒否台帳の読み込みすら待たない。台帳が読めていれば射影に使い、
+      未読込なら先に表示して到着時に再射影する。
+    </li>
+    <li>
+      <strong>拒否ノートの一瞬表示は許容する</strong>。
+      キャッシュされた時点では許可されていたデータであり、オフライン中に
+      古い本文が見えること自体は問題ない。<strong>オンラインに戻った時点の
+      再検証で確実に表示を止められれば十分</strong>（403/404 の確認 →
+      表示から除去 + 台帳へ永続化）。この緩和により「台帳到着待ち」という
+      唯一の待ち合わせも不要になる。
+    </li>
+    <li>
+      <strong>IDB コールドオープン（初回 ~10-30ms）は fetch を待たせない</strong>。
+      表示経路はネットワークだけで完結し、キャッシュ層は並行してウォームアップする。
+    </li>
+    <li>
+      <strong>オフライン検出は速く</strong>。fetch のタイムアウト待ちで表示が遅れると
+      本末転倒なので、<code>navigator.onLine</code> + 短いタイムアウト（または
+      fetch / キャッシュの race）でフォールバックする。
+    </li>
+    <li>
+      <strong>detached 保存</strong>は表示確定後に走らせる。失敗は警告のみ。
+      OPFS の本文・画像書き込みは全てこちら側。
+    </li>
+  </ul>
+
+  <!-- ================================================================ -->
+  <h2 id="design"><span class="num">4</span>新設計の提案</h2>
+
+  <h3 id="design-principles">4.1 設計原則</h3>
+  <ol>
+    <li>
+      <strong>表示キャッシュと編集キャッシュを完全分離する</strong> —
+      「見るためのコピー」（フォルダ・一覧・本文スナップショット・画像）と
+      「書くための複製」（Y.Doc）を別ストア・別契約で持つ。
+      表示側は読み捨て可能なキャッシュとして極限まで薄く、
+      編集側は Yjs の同期モデルに丸ごと委譲する。
+      両者が 1 つの権威機構を共有しない。
+    </li>
+    <li>
+      <strong>キャッシュの失敗は UI を殺さない（fail-soft）</strong> —
+      読み取り失敗は「キャッシュミス」、書き込み失敗は「警告」のみ。キャッシュ内部由来の
+      AbortError を UI へ露出しない。UI が見る中止は自分のナビゲーション abort だけ。
+    </li>
+    <li>
+      <strong>durable に残す権威は 2 種類だけ</strong> —
+      「拒否台帳（denied-note / denied-folder / denied-image）」と「purge 墓標」。
+      前者は 403/404 の復活防止に必須の安全機構、後者は自己修復のために残す。
+    </li>
+    <li>
+      <strong>インメモリ状態はタブをまたがない</strong> —
+      BroadcastChannel は「ヒント」に格下げし、正は常に IDB。通知を逃したタブでも
+      読み取り時に正しい状態を観測する。通知を受けても「再読み込み」するだけで、
+      自分の状態を不可逆に変えない。
+    </li>
+    <li>
+      <strong>中断は常に自己修復できる</strong> —
+      墓標を見つけたら、ロックで生存確認して purge を完了/巻き取る。
+      「手動クリアまで復旧不能」という状態を設計から排除する。
+    </li>
+    <li>
+      <strong>表示経路は純粋な流れ</strong> —
+      <code>fetch → snapshot → display</code>。保存と拒否台帳の射影は
+      分岐した detached / 到着時再射影の処理で、読み戻しのためにキャッシュを開き直さない。
+    </li>
+    <li>
+      <strong>オンライン表示速度はキャッシュ導入前と同等</strong> —
+      クリティカルパスに IDB/OPFS の読み書きを直列で挟まない（§3.3）。
+      キャッシュ層のウォームアップと保存は表示と並列〜表示後に行う。
+    </li>
+  </ol>
+
+  <h3 id="design-split">4.2 表示キャッシュ / 編集キャッシュの完全分離</h3>
+  <p>
+    再設計の中核は、§1.6 で見えた「二重の本文」を、<strong>役割の異なる 2 層に分離</strong>すること。
+    現行は 1 つのキャッシュ機構（IDB v4 + OPFS + epoch フェンス）が表示と編集の両方を抱え込んでいるが、
+    両者が求める性質は全く違う。
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th></th><th>表示キャッシュ（読み物）</th><th>編集キャッシュ（書き物）</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>対象</strong></td>
+          <td>フォルダ構造・ノート一覧・ノート本文スナップショット・画像</td>
+          <td>ノート本文の Y.Doc（編集中ドキュメント）</td>
+        </tr>
+        <tr>
+          <td><strong>正しさの要求</strong></td>
+          <td>「だいたい新しい」「拒否したものは出さない」で十分。古くても壊れても、次回 fetch で治る</td>
+          <td>書いた内容を絶対に失わない。他者の変更と正しくマージする</td>
+        </tr>
+        <tr>
+          <td><strong>整合機構</strong></td>
+          <td>なし〜薄い拒否台帳のみ（last-write-wins）</td>
+          <td>Yjs CRDT 自身がマージを保証（自前の世代管理は不要）</td>
+        </tr>
+        <tr>
+          <td><strong>保存先</strong></td>
+          <td>IDB v5 <code>miyulabmd-offline-cache</code> + OPFS（現行レイアウト継承）</td>
+          <td>IDB <code>y-indexeddb</code>（ノート毎の Y.Doc update ログ）</td>
+        </tr>
+        <tr>
+          <td><strong>失敗時</strong></td>
+          <td>「未キャッシュ」に縮退。UI を殺さない</td>
+          <td>ローカルに update が残るだけ。次回接続時に自動同期</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>新しいデータモデル（クライアント側）</h4>
+  <div class="diagram">
+    <div class="layers">
+      <div class="layer">
+        <div class="layer-label">表示層<br>IDB v5<br><code>offline-cache</code></div>
+        <div class="layer-boxes">
+          <span class="lbox storage">notes / folders / note-lists<small>メタデータ（LWW）</small></span>
+          <span class="lbox storage">OPFS .md / .image<small>閲覧用スナップショット・画像</small></span>
+          <span class="lbox durable">denials<small>拒否台帳＋世代</small></span>
+          <span class="lbox durable">settings<small>viewer-id / purge 世代・墓標</small></span>
+        </div>
+      </div>
+      <div class="layer">
+        <div class="layer-label">編集層<br>y-indexeddb<br><code>yjs-docs</code></div>
+        <div class="layer-boxes">
+          <span class="lbox durable">doc:&lt;noteId&gt;<small>Y.Doc update ログ（自動蓄積）</small></span>
+          <span class="lbox msg">synced フラグ<small>サーバーと同期済みかのヒント</small></span>
+        </div>
+      </div>
+      <div class="layer">
+        <div class="layer-label">保持条件</div>
+        <div class="layer-boxes">
+          <span class="lbox">編集層に載せるのは <strong>所有者本人 && effectiveWriteScope === "self" && 編集ロックなし</strong> のノートだけ<small>permission.ts:181-219 / CONTEXT.md「オフライン編集資格」</small></span>
+          <span class="lbox">条件を外れたノート（共有化・権限変更）のローカル doc は破棄</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="dim">
+    分離の効果: 表示層は「編集用の権威」を一切背負わなくなり、現行の epoch/lifetime フェンスの
+    大部分が不要になる。編集層は Yjs の provider 機構（y-indexeddb + y-websocket）に任せるため、
+    「オフラインで書いた内容が消える」「再接続時にどうマージするか」という最も難しい問題を
+    自前で実装しなくて済む。
+  </p>
+
+  <h3 id="design-edit">4.3 編集キャッシュ = Yjs + y-indexeddb</h3>
+  <p>
+    既に <code>createYjsSession</code>（<span class="pathref">lib/collaboration.ts:99-161</span>）は
+    <code>y-websocket</code> の <code>WebsocketProvider</code> で DocumentRoom DO と同期している。
+    ここに <strong><code>y-indexeddb</code> の <code>IndexeddbPersistence</code> を足すだけ</strong>で、
+    オフライン編集・変更の永続化・再接続時の自動マージが成立する。
+    同期プロトコル・CRDT マージ・awareness は全て既存の経路Bをそのまま使う。
+  </p>
+  <div class="diagram">
+    <div class="flow">
+      <span class="fstep">EditorPage<small>既存 Y.Doc "markdown"</small></span>
+      <span class="farrow">→</span>
+      <span class="fstep net">IndexeddbPersistence<small>編集のたびに IDB へ update 蓄積</small></span>
+      <span class="farrow">＋</span>
+      <span class="fstep net">WebsocketProvider<small>オンライン時のみ接続</small></span>
+      <span class="farrow">⇄</span>
+      <span class="fstep">DocumentRoom DO<small>Yjs sync で双方向マージ</small></span>
+      <span class="farrow">→</span>
+      <span class="fstep">D1 markdown_snapshot<small>従来どおり射影</small></span>
+    </div>
+  </div>
+  <ul>
+    <li>
+      <strong>オフライン編集</strong>: provider が切れていても Y.Doc への編集はそのまま可能。
+      変更は update として y-indexeddb に積まれ、<code>provider.synced</code> で
+      「未送信の編集あり」を UI に表示できる。
+    </li>
+    <li>
+      <strong>再接続</strong>: 接続回復で y-websocket の sync step が走り、
+      サーバー側 Y.Doc と自動マージ。<strong>マージアルゴリズムは Yjs の責務</strong>で、
+      自前コードは接続の on/off と資格判定だけ。
+    </li>
+    <li>
+      <strong>編集ロック中のノートは除外</strong>: ロック中は閲覧のみ。
+      （注: ロック機構は現在 gold 層ベースだが、汎用の「編集ロック」に
+      分離される方向 — CONTEXT.md 参照。いずれにせよロック中は編集資格なし。）
+      オフライン中に遠隔でロックされた場合、未送信 update はサーバーに
+      拒否され得るため「同期待ち」として残し、ロック解除後の sync に委ねる。
+    </li>
+    <li>
+      <strong>「自分だけが編集可能」に限定する理由</strong>:
+      CRDT は任意の同時編集をマージできるが、オフライン期間が長いほど
+      サーバー側との乖離が大きくなり、他人の編集と大きくマージする局面は
+      ユーザー体験上予測しにくい。<code>effectiveWriteScope === "self"</code>
+      （<span class="pathref">packages/shared/src/permission.ts:181-219</span>）であれば
+      <strong>実質的なライターは自分だけ</strong>で、マージは「自分のオフライン分を
+      追記するだけ」に縮退し、衝突らしい衝突が起きない。
+    </li>
+    <li>
+      <strong>資格の喪失</strong>: ノートが共有化・ロックされたら
+      「新たに編集可能にする」対象から外れるが、<strong>ローカル doc の削除は
+      同期済みと確認できてから</strong>。未送信 update を含む doc は絶対に
+      自動削除しない —「同期待ち」として残し、次回オンライン時に sync を試みる。
+      サーバーが拒否する場合（ロック等）は未送信として UI に残し続け、
+      ユーザーの手動破棄を待つ。資格はメタデータ面の情報で判定し、
+      表示層とは別の単純な判定関数にできる。
+    </li>
+    <li>
+      <strong>容量管理</strong>: update ログの肥大化にはロード時の compaction で対処
+      （エントリ数が閾値（目安 500）を超えたら <code>Y.encodeStateAsUpdate</code> の
+      マージ済み 1 エントリに書き戻す）。容量上限は設けずブラウザの quota に任せ、
+      <code>QuotaExceededError</code> は警告として表示。未送信を失うので自動削除はしない。
+    </li>
+    <li>
+      <strong>デフォルト ON + 端末ごとの opt-out</strong>: オフライン編集はデフォルトで有効。
+      設定に「この端末でオフライン編集を使わない」トグルを置く（localStorage ベースの
+      端末ローカル設定。共有端末で痕跡を残したくない場合向け）。OFF にすると
+      <code>IndexeddbPersistence</code> を付けずオンライン編集のみに戻り、
+      既存 doc は確認ダイアログで「削除する / 残す」を選ばせる。
+    </li>
+    <li>
+      <strong>purge 対象に編集層を含める</strong>: 表示層の purge は編集層の
+      y-indexeddb DB も消す（Q2 の未送信ガード通過後）。doc 名は
+      <code>yjs-&lt;userId&gt;-&lt;noteId&gt;</code> 規約 + 表示層
+      <code>settings</code> 内の doc レジストリで列挙する
+      （<code>indexedDB.databases()</code> は Firefox/Safari 非対応のため使わない）。
+      purge 墓標の自己修復対象にも編集層を含める。
+      サーバー側で削除されたノートの doc は、同期済みなら削除・未送信なら
+      「同期待ち」リストで提示する（Q6 のルールに従う）。
+    </li>
+    <li>
+      <strong>対象外のままの操作</strong>: タイトル変更・公開範囲変更など
+      メタデータ操作は REST 経由のためオンライン限定。公開共有ページ
+      （<code>/s/:id</code>・ゲスト閲覧）のオフライン対応は現行どおり対象外。
+      同一ノートの複数タブ編集は y-websocket の BroadcastChannel 同期が
+      オフラインでも効くため追加実装なしで整合する。
+    </li>
+    <li>
+      <strong>資格判定は stale を許容</strong>: 資格は直近のメタデータで判定する。
+      オフライン中に他端末で共有化されても、再接続時の Yjs マージが正しく
+      吸収する（owner の編集は常に有効）。検知は「資格を失ったことが判明した
+      タイミング」で sync-then-evict に入ればよい。
+    </li>
+    <li>
+      <strong>未送信の UI 提示は 2 箇所だけ</strong>: ①エディタ内の
+      「未送信の編集あり（オフライン）」バッジ（<code>provider.synced === false</code>、
+      同期で自動消滅）、②Q2 の purge ガードモーダルの対象一覧。
+      オンラインなのに sync されない場合（サーバー拒否の可能性）は
+      「同期待ち」として区別表示する。ホームやノート一覧への常設
+      インジケーターは設けない。
+    </li>
+    <li>
+      <strong>本文表示ソースの優先順位</strong>: <code>ローカル Y.Doc（あれば）→ OPFS スナップショット → ネットワーク</code>。
+      doc が存在するノートは Y.Doc がローカル最新真実（未送信編集を含む）なので
+      閲覧表示もそこから行う。doc がなければ OPFS スナップショット。
+      表示層は資格判定を知らず「doc の有無」だけを見る。
+      OPFS <code>.md</code> は doc 破棄後・非資格ノート用のフォールバックとして
+      全ノートで従来どおり書き続ける。
+    </li>
+    <li>
+      <strong>閲覧専用・共有ノート</strong>: y-indexeddb に載せない。
+      オフラインでは従来どおり読み取り専用表示（表示層のスナップショット）。
+    </li>
+    <li>
+      <strong>前提: 一度オンラインで同期したノートのみ編集可</strong> —
+      ローカルで新規 Y.Doc を作ってスナップショット本文を挿入すると、
+      サーバーと履歴が共有されないため sync 時に本文が二重化する
+      （同じ文字列でも異なる item ID で挿入される）。そのため
+      y-indexeddb に doc がないノートはオフラインでは閲覧のみとし、
+      「一度オンラインで開くとオフライン編集できます」と案内する。
+      サーバーから Y.Doc update を seed するエンドポイント
+      （<code>GET /api/notes/:id/yjs-state</code> 案）は将来の拡張として残す。
+    </li>
+    <li>
+      <strong>オフライン操作は本文編集のみ</strong>: 新規作成・削除・フォルダ移動・
+      共有変更・画像添付はオンライン限定（オフライン時は UI を disabled/非表示）。
+      作成はサーバーが short_id/notes 行を払い出すため仮 ID 機構が必要で、
+      将来要件として Issue 化（#118）。
+    </li>
+    <li>
+      <strong>未送信編集と purge の衝突を防ぐ</strong>: ログアウト・アカウント切替・
+      「この端末のキャッシュを削除」の前に、編集層に未送信 update が残っていないか
+      検査する。残っている場合はモーダルで対象ノートを列挙し
+      「<strong>同期してから実行</strong>（オンライン時）/
+      <strong>編集を破棄して実行</strong> / キャンセル」を選ばせる。
+      オフライン中のログアウト要求は「オンラインでやり直してください」と案内。
+      doc は <code>userId</code> 込みでキーイングし、別アカウントへ見せない。
+    </li>
+  </ul>
+
+  <h3 id="design-authority">4.4 表示キャッシュの権威モデル — epoch フェンスを維持するか</h3>
+  <div class="compare">
+    <div class="col current">
+      <h4>案 A: 現行の epoch フェンスを維持</h4>
+      <ul>
+        <li>読み書き全てが捕捉済み scope epoch を持ち回り、トランザクション内で再検証する。</li>
+        <li>利点: 通知を逃したタブでも書き込みが確実に止まる（理論上は最強）。</li>
+        <li>欠点: 中断墓標で永久ロック、タブ間 suspend 伝搬毒、表示と権威の結合、4 系統の世代、約 3,800 行の維持コスト。障害が「正しさ」でなく「可用性」を直撃する。</li>
+        <li>実態: 「通知が届かない最悪ケース」を防ぐための機構が、<strong>通知が届く通常ケースでも毎操作の失敗要因</strong>になっている。</li>
+      </ul>
+    </div>
+    <div class="col proposed">
+      <h4>案 B: ネットワーク優先 + 拒否台帳 + 自己修復墓標（推奨）</h4>
+      <ul>
+        <li>データ面（folders / notes / note-lists / OPFS）はフェンスなしの last-write-wins。</li>
+        <li>権威面は「拒否台帳」と「purge 世代カウンタ」だけを durable に保持し、書き込みトランザクション内でその 2 点だけを検査する縮小版 CAS。</li>
+        <li>読み取りはフェンスなし。読んだ時点のデータ＋拒否台帳の射影を返す。</li>
+        <li>purge は「墓標 → 削除 → 墓標除去」。墓標を見つけたオープンはロックで生存確認して自己修復。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout good">
+    <div class="callout-title">推奨: 案 B（薄いフェンスつき）</div>
+    <p>
+      「グローバル epoch を全操作に持ち回る」方式をやめ、<strong>書き込み時に自分のトランザクション内で
+      「対象リソースの拒否世代」と「ユーザーの purge 世代」だけを照合する</strong>方式に置き換える。
+      これにより cross-tab での「古い書き込みが purge 後に復活する」「拒否確定後に古い 200 が保存される」
+      という本来の安全要件は維持しつつ、読み取り経路から権威検証を完全に取り除ける。
+      失うものは「読み取り中に他タブで確定した拒否を即座に観測する保証」だが、それは
+      BroadcastChannel 通知＋次回読み取りでカバーでき、現行でも非フェンスなインメモリ通知頼みの
+      部分があったため実害は小さい。
+    </p>
+    <p class="dim">
+      判断基準: 「fail-closed が必要なのは <em>表示キャッシュへの書き込み</em>（拒否確定後の
+      復活防止 CAS と purge 世代照合）だけ。<em>読み取り</em>と<em>拒否台帳への書き込み</em>
+      は best-effort でよい — 台帳書き込みが失敗しても次回オンライン時の再 403/404 で収束する」。
+      現行設計はこの区別をしていない。
+    </p>
+  </div>
+
+  <h3 id="design-inventory">4.5 既存機構の仕分け</h3>
+  <p class="dim">
+    対象は<strong>表示キャッシュ層</strong>。編集層は §4.3 の Yjs 機構に任せるため、
+    ここで「削除」とある権威フェンスが失われても、編集データの安全性は Yjs が別系統で保証する。
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>機構</th><th>コード</th><th class="center">判定</th><th>新設計での扱い</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>OPFS イミュータブルファイル + IDB 参照スワップ</td>
+          <td><code>offline-cache.ts:2956-3014</code></td>
+          <td class="center"><span class="badge keep">残す</span></td>
+          <td>2 相書き込み自体は正しい。orphan GC は破損レコードで全体中止せずスキップ方式に緩和。</td>
+        </tr>
+        <tr>
+          <td>拒否マーカー + 射影（<code>projectDeniedFolder</code> 等）</td>
+          <td><code>offline-cache.ts:2695-2722</code></td>
+          <td class="center"><span class="badge keep">残す</span></td>
+          <td><code>denials</code> ストアに統合。射影は純粋関数として切り出し、ネットワーク結果にも適用。</td>
+        </tr>
+        <tr>
+          <td>構造化キー（b64 パーツ、JSON フォルダキー）</td>
+          <td><code>offline-cache.ts:1031-1081</code></td>
+          <td class="center"><span class="badge keep">残す</span></td>
+          <td>ユーザープレフィックス走査で範囲削除できる利点を維持。</td>
+        </tr>
+        <tr>
+          <td>Workbox precache + ナビゲーション fallback</td>
+          <td><code>service-worker/sw.ts</code></td>
+          <td class="center"><span class="badge keep">残す</span></td>
+          <td>変更不要。shell は今の設計で問題ない。</td>
+        </tr>
+        <tr>
+          <td>prefetch coordinator + Web Locks <code>ifAvailable</code></td>
+          <td><code>mydrive-prefetch-coordinator.ts:99-133</code></td>
+          <td class="center"><span class="badge keep">残す</span></td>
+          <td>タブ間排他はこの軽い形で十分。</td>
+        </tr>
+        <tr>
+          <td>in-flight ノート GET 共有</td>
+          <td><code>note-request.ts</code></td>
+          <td class="center"><span class="badge simplify">簡素化</span></td>
+          <td>世代比較をインメモリ世代から durable 拒否 seq に差し替え。</td>
+        </tr>
+        <tr>
+          <td><code>viewer-id</code> / cached viewer モード</td>
+          <td><code>viewer-context.ts</code></td>
+          <td class="center"><span class="badge keep">残す</span></td>
+          <td>設定ストアへ移動。読み取り失敗は unavailable 化ではなく警告＋network-only。</td>
+        </tr>
+        <tr>
+          <td>captureOfflineCacheScope / assertOfflineCacheScope / OfflineCacheScope</td>
+          <td><code>offline-cache.ts:161-168, 573-662</code></td>
+          <td class="center"><span class="badge remove">削除</span></td>
+          <td>公開 API から撤去。書き込み内部の CAS チェックに集約。</td>
+        </tr>
+        <tr>
+          <td>device-epoch / user-epoch / 合成 epoch</td>
+          <td><code>offline-cache.ts:469-527</code></td>
+          <td class="center"><span class="badge replace">置き換え</span></td>
+          <td>ユーザー単位の purge 世代カウンタ（単純な整数）へ。</td>
+        </tr>
+        <tr>
+          <td>globalSuspended / suspendedUsers / userLifetimes / clearLifetimes / globalLifetime</td>
+          <td><code>offline-cache.ts:151-159</code></td>
+          <td class="center"><span class="badge remove">削除</span></td>
+          <td>fail-closed は durable な拒否台帳と墓標で実現。suspend は「ユーザーのキャッシュ無効」フラグとして durable 化し、purge 成功か明示クリアで解除。</td>
+        </tr>
+        <tr>
+          <td>guardTransaction（3 キー epoch 検証）</td>
+          <td><code>offline-cache.ts:707-742</code></td>
+          <td class="center"><span class="badge simplify">縮小</span></td>
+          <td>拒否世代 + purge 世代の 2 点検査のみに縮小。読み取り txn には適用しない。</td>
+        </tr>
+        <tr>
+          <td><code>&lt;uuid&gt;:purging</code> epoch 墓標</td>
+          <td><code>offline-cache.ts:1157, 1486-1508</code></td>
+          <td class="center"><span class="badge replace">置き換え</span></td>
+          <td>専用の purge 墓標レコード <code>{kind, startedAt}</code>。発見時にロックで生存確認 → 自己修復。</td>
+        </tr>
+        <tr>
+          <td>BroadcastChannel × 2（lifecycle + identity）</td>
+          <td><code>offline-cache.ts:232-467</code>, <code>identity-lifecycle.ts:32-44</code></td>
+          <td class="center"><span class="badge simplify">統合</span></td>
+          <td>1 チャンネルに統合し、イベントは「再読込ヒント」に格下げ。受信側は状態を不可逆に変更しない。</td>
+        </tr>
+        <tr>
+          <td>getEpochDatabase シングルトン / WeakMap scopes</td>
+          <td><code>offline-cache.ts:167-194</code></td>
+          <td class="center"><span class="badge remove">削除</span></td>
+          <td>通常の open/close に一本化。モジュールロード時の副作用を排除。</td>
+        </tr>
+        <tr>
+          <td>metadata ストア</td>
+          <td><code>offline-cache.ts:18</code></td>
+          <td class="center"><span class="badge replace">分割</span></td>
+          <td><code>settings</code>（viewer-id, drive-root, purge 状態）+ <code>denials</code>（拒否台帳）に分離。purge 削除リストの手管理を解消。</td>
+        </tr>
+        <tr>
+          <td>OPFS <code>.md</code> 本文キャッシュ</td>
+          <td><code>offline-cache.ts:32, 2923-3014</code></td>
+          <td class="center"><span class="badge simplify">縮小</span></td>
+          <td><strong>閲覧専用スナップショット</strong>に役割を限定。編集資格のあるノートの最新本文は編集層の Y.Doc が持つため、表示層は「読むだけのコピー」として epoch フェンスを外せる。</td>
+        </tr>
+        <tr>
+          <td>ノート編集経路（y-websocket / DocumentRoom）</td>
+          <td><code>lib/collaboration.ts</code>, <code>durable-objects/DocumentRoom.ts</code></td>
+          <td class="center"><span class="badge keep">残す</span></td>
+          <td>プロトコルは変更不要。<code>IndexeddbPersistence</code>（y-indexeddb）を追加し、編集資格が self 専有のノートのみローカル永続化。</td>
+        </tr>
+        <tr>
+          <td>オフライン編集不可の viewing gate</td>
+          <td><code>note-read-session.ts</code> / EditorPage 側の readonly 制御</td>
+          <td class="center"><span class="badge replace">置き換え</span></td>
+          <td>「全ノート一律 readonly」→「self 専有ノートはローカル Y.Doc で編集可、それ以外は readonly」に変更。編集可否は資格判定（effectiveWriteScope）で決める。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 id="design-flow">4.6 新しい読み書きフロー</h3>
+
+  <h4>オンライン読み取り（ホーム / ノート共通）</h4>
+  <div class="diagram">
+    <div class="flow">
+      <span class="fstep net">network fetch</span>
+      <span class="farrow">→</span>
+      <span class="fstep">snapshot 構築</span>
+      <span class="farrow">→</span>
+      <span class="fstep net">display<small>台帳を待たず即表示</small></span>
+      <span class="farrow">＋</span>
+      <span class="fstep">detached save<small>失敗は cacheWarning のみ</small></span>
+      <span class="farrow">＋</span>
+      <span class="fstep">project(denials)<small>台帳到着時に再射影。未読込でもブロックしない</small></span>
+    </div>
+  </div>
+  <ul>
+    <li>キャッシュ保存は表示経路から分岐し、失敗しても snapshot は返る。</li>
+    <li>射影は「保存済み台帳の読み取り」だけで完結し、書き込みハンドルやスコープ捕捉を必要としない。台帳が未読込なら表示を先に出し、到着時に拒否ノートを差し引いて再描画する（§3.3 の許容範囲）。</li>
+  </ul>
+
+  <h4>オフライン読み取り</h4>
+  <div class="diagram">
+    <div class="flow">
+      <span class="fstep">cache.get</span>
+      <span class="farrow">→</span>
+      <span class="fstep net">display<small>台帳が読めていれば射影、失敗・未読込でもそのまま表示</small></span>
+      <span class="farrow">or</span>
+      <span class="fstep">「オンラインで開いてください」<small>未キャッシュ・墓標・読み取り失敗は全て同じ案内</small></span>
+    </div>
+  </div>
+  <p class="dim">
+    オフライン表示でも拒否台帳の読み込みを待たない。キャッシュは「保存時点で許可されていた
+    データ」なので、台帳の読み取り失敗や到着遅延で表示を止めない。
+    台帳が利用可能になれば遅れて再射影し、オンライン復帰時の再検証が最終的な正しさを保証する。
+  </p>
+
+  <h4>書き込み（縮小版 CAS）</h4>
+  <div class="diagram">
+    <div class="flow">
+      <span class="fstep">書き込み txn 開始</span>
+      <span class="farrow">→</span>
+      <span class="fstep fence">対象リソースの拒否世代 ≦ 読み取り開始時?</span>
+      <span class="farrow">→</span>
+      <span class="fstep fence">purge 世代 == 捕捉時?</span>
+      <span class="farrow">→</span>
+      <span class="fstep net">put → commit</span>
+      <span class="farrow">（不一致 → skip。エラーではなく「書かなかった」）</span>
+    </div>
+  </div>
+  <p class="dim">
+    グローバル epoch ではなく「そのリソースに関係する世代」だけを見るため、
+    無関係なユーザーの変更や別リソースの拒否で書き込みが潰れない。
+  </p>
+
+  <h4>オフライン編集（編集層 — self 専有ノート）</h4>
+  <div class="diagram">
+    <div class="flow">
+      <span class="fstep">資格判定<small>effectiveWriteScope === "self"</small></span>
+      <span class="farrow">→</span>
+      <span class="fstep">y-indexeddb から Y.Doc 復元<small>未送信 update 含む</small></span>
+      <span class="farrow">→</span>
+      <span class="fstep net">編集<small>update が IDB に即蓄積</small></span>
+      <span class="farrow">→</span>
+      <span class="fstep msg">再接続時 y-websocket sync<small>Yjs が自動マージ</small></span>
+      <span class="farrow">→</span>
+      <span class="fstep">D1 snapshot 射影<small>従来どおり</small></span>
+    </div>
+  </div>
+  <p class="dim">
+    表示層の読み書きフローとは一切の状態を共有しない。編集可否は資格判定だけで決まり、
+    「キャッシュ権威が生きているか」は編集層の関心事ではない。
+  </p>
+
+  <h3 id="design-repair">4.7 purge 中断の自己修復</h3>
+  <div class="diagram">
+    <div class="flow">
+      <span class="fstep">purge 墓標を書く<small>{kind: "user"|"device", startedAt}</small></span>
+      <span class="farrow">→</span>
+      <span class="fstep">データ削除<small>IDB 範囲削除 → OPFS 削除</small></span>
+      <span class="farrow">→</span>
+      <span class="fstep net">墓標を消す<small>完了</small></span>
+    </div>
+    <div class="flow">
+      <span class="fstep">open 時に墓標を発見</span>
+      <span class="farrow">→</span>
+      <span class="fstep fence">exclusive lock を ifAvailable で試行</span>
+      <span class="farrow">→</span>
+      <span class="fstep">取れた = 前の purge 死亡 → 削除を完了して墓標除去</span>
+      <span class="farrow">or</span>
+      <span class="fstep">取れない = 生きた purge 実行中 → 「キャッシュ空」として継続</span>
+    </div>
+  </div>
+  <p>
+    現在の <code>:purging</code> 墓標は「永久に拒否し続ける」方向にのみ働くが、
+    新設計では<strong>墓標 = 「未完の仕事」へのポインタ</strong>に変える。
+    中断しても次のオープンで必ず収束し、ユーザー操作を必要としない。
+  </p>
+
+  <h3 id="design-tabs">4.8 タブ間調停の簡素化</h3>
+  <p class="dim">
+    なお編集層のタブ間調停は Yjs に委譲できる。同じノートを複数タブで開いた場合も
+    y-indexeddb と BroadcastChannel 経由で Y.Doc が同期されるため、
+    表示層のための調停機構を編集データへ適用する必要はない。
+  </p>
+  <ul>
+    <li>
+      <strong>BroadcastChannel は「再読込ヒント」に限定</strong>。
+      <code>{type: "cache-changed", userId}</code> / <code>{type: "purged", userId}</code> /
+      <code>{type: "denied", userId, aliases}</code> を受けたタブは、表示中データを再読み込みするだけ。
+      自分の suspend フラグを立てない。通知を逃しても durable 側が正。
+    </li>
+    <li>
+      <strong>Web Locks は purge / GC / prefetch の 3 箇所だけ</strong>。
+      全キャッシュ操作を包む shared lock の二重構造（global ⊂ user）は廃止し、
+      破壊的操作だけを exclusive にする。
+    </li>
+    <li>
+      <strong>拒否の伝搬は durable 台帳が担う</strong>。
+      別タブで確定した拒否は、こちらの「書き込み時 CAS」と「次回読み取りの射影」で観測する。
+      インメモリ世代をタブ間で同期しようとしない。
+    </li>
+  </ul>
+
+  <!-- ================================================================ -->
+  <h2 id="matrix"><span class="num">5</span>機能マトリクス</h2>
+  <p class="dim">凡例: ◎ 可能 / △ 条件付き・部分的 / ✕ 不可 / — 該当なし</p>
+
+  <h3>現状</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>機能</th><th class="center">オンライン</th><th class="center">オフライン</th><th class="center">復帰直後</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>フォルダ一覧表示</td>
+          <td class="center"><span class="m-warn">△</span> 権威失敗で AbortError → 一覧消失（PR #117 で 1 回リトライ）</td>
+          <td class="center"><span class="m-ok">◎</span> cached viewer 時（purging 墓標があると一切出ない）</td>
+          <td class="center"><span class="m-warn">△</span> viewer 再解決後に再読込（suspend 残留で失敗し得る）</td>
+        </tr>
+        <tr>
+          <td>ノート一覧</td>
+          <td class="center"><span class="m-warn">△</span> 射影の読み戻し失敗で空になることがある</td>
+          <td class="center"><span class="m-ok">◎</span> キャッシュ済みなら表示</td>
+          <td class="center"><span class="m-warn">△</span> 同上</td>
+        </tr>
+        <tr>
+          <td>ノート本文閲覧</td>
+          <td class="center"><span class="m-ok">◎</span> ネットワーク優先、失敗でキャッシュ</td>
+          <td class="center"><span class="m-ok">◎</span> キャッシュ済みなら表示</td>
+          <td class="center"><span class="m-warn">△</span> 再検証まではキャッシュ表示</td>
+        </tr>
+        <tr>
+          <td>ノート編集</td>
+          <td class="center"><span class="m-ok">◎</span> viewing gate 通過時</td>
+          <td class="center"><span class="m-ng">✕</span> readonly</td>
+          <td class="center"><span class="m-warn">△</span> 再認証後に解禁</td>
+        </tr>
+        <tr>
+          <td>画像表示</td>
+          <td class="center"><span class="m-ok">◎</span> ネットワーク＋保存</td>
+          <td class="center"><span class="m-warn">△</span> キャッシュ済みのみ</td>
+          <td class="center"><span class="m-warn">△</span> キャッシュ→ネットワークへ切替</td>
+        </tr>
+        <tr>
+          <td>検索</td>
+          <td class="center"><span class="m-ok">◎</span> サーバー FTS / 検索 DSL</td>
+          <td class="center"><span class="m-ng">✕</span> オフライン検索なし</td>
+          <td class="center"><span class="m-warn">△</span> オンライン復帰で利用可</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>新設計</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>機能</th><th class="center">オンライン</th><th class="center">オフライン</th><th class="center">復帰直後</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>フォルダ一覧表示</td>
+          <td class="center"><span class="m-ok">◎</span> ネットワーク結果を無条件表示、保存失敗は警告のみ</td>
+          <td class="center"><span class="m-ok">◎</span> 墓標・権威異常も「未キャッシュ」と同じ案内</td>
+          <td class="center"><span class="m-ok">◎</span> 表示を維持したまま背景再取得</td>
+        </tr>
+        <tr>
+          <td>ノート一覧</td>
+          <td class="center"><span class="m-ok">◎</span> 同上</td>
+          <td class="center"><span class="m-ok">◎</span> 同上</td>
+          <td class="center"><span class="m-ok">◎</span> 同上</td>
+        </tr>
+        <tr>
+          <td>ノート本文閲覧</td>
+          <td class="center"><span class="m-ok">◎</span> 現行どおり</td>
+          <td class="center"><span class="m-ok">◎</span> 現行どおり</td>
+          <td class="center"><span class="m-ok">◎</span> 再検証で昇格</td>
+        </tr>
+        <tr>
+          <td>ノート編集</td>
+          <td class="center"><span class="m-ok">◎</span> 現行どおり（y-websocket 経由）</td>
+          <td class="center"><span class="m-ok">◎</span> self 専有ノートはローカル Y.Doc で編集可、それ以外は readonly</td>
+          <td class="center"><span class="m-ok">◎</span> y-websocket 再接続で Yjs が自動マージ</td>
+        </tr>
+        <tr>
+          <td>画像表示</td>
+          <td class="center"><span class="m-ok">◎</span> 現行どおり</td>
+          <td class="center"><span class="m-warn">△</span> キャッシュ済みのみ（仕様どおり）</td>
+          <td class="center"><span class="m-ok">◎</span> 現行どおり</td>
+        </tr>
+        <tr>
+          <td>検索</td>
+          <td class="center"><span class="m-ok">◎</span> サーバー FTS / 検索 DSL</td>
+          <td class="center"><span class="m-warn">△</span> キャッシュ済み一覧のタイトル/フォルダフィルタのみ（本文 FTS はなし — OPFS 全ファイル走査は O(総量) で重いため対象外）</td>
+          <td class="center"><span class="m-ok">◎</span> オンライン検索に復帰</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="dim">
+    本質的な差は「<strong>オンライン時にキャッシュ由来の失敗が表示を潰さない</strong>」
+    「<strong>権威異常が未キャッシュとして縮退する</strong>」の 2 点。
+  </p>
+
+  <!-- ================================================================ -->
+  <h2 id="migration"><span class="num">6</span>移行計画</h2>
+  <p>
+    Phase 番号は設計上の依存関係。実装・リリースの推奨順序は
+    <strong>0 → 1 → 5（編集層）→ 2 → 3 → 4</strong>。
+    Phase 5 は表示層と独立しており後方互換的に追加できるため、
+    早い段階で「オフライン編集」の価値を届けられる。
+  </p>
+
+  <div class="phase">
+    <div class="ph-num">0</div>
+    <div class="ph-body">
+      <div class="ph-title">表示経路の fail-soft 化（既存コードのまま）</div>
+      <p>
+        <code>home-metadata-reader.ts</code> と <code>cached-drive-reader.ts</code> で、
+        キャッシュ内部由来の AbortError / scope invalidation を UI へ投げない。
+        ネットワーク結果が取れていれば常に表示し、キャッシュ失敗は警告のみ。
+        PR #117 の方針を「再読み込み射影の失敗」「validateHomePublication」にも拡張する。
+      </p>
+      <div class="ph-risk"><span class="badge p2">リスク: 低</span> 既存構造を変えない。ただし根本機構は残るため対症療法。</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="ph-num">1</div>
+    <div class="ph-body">
+      <div class="ph-title">purge 墓標の自己修復（現行 epoch 機構のまま）</div>
+      <p>
+        <code>openOfflineCache</code> / scope 捕捉時に <code>:purging</code> 墓標や
+        <code>device-clear-state="purging"</code> を見つけたら、対応する exclusive lock を
+        <code>ifAvailable</code> で試行し、取れたら purge を完了させる。
+        「永久に塞がれた状態」を解消するだけで UX は大きく改善する。
+      </p>
+      <div class="ph-risk"><span class="badge p1">リスク: 中</span> ロックと purge の対応関係を壊さないよう注意。テストで中断シナリオを注入。</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="ph-num">2</div>
+    <div class="ph-body">
+      <div class="ph-title">DB v5: 拒否台帳と設定ストアへの分割 + epoch 機構の撤去（全消去移行）</div>
+      <p>
+        <code>metadata</code> を <code>settings</code>（viewer-id / drive-root / purge 世代・墓標 / doc レジストリ）と
+        <code>denials</code>（拒否マーカー＋世代カウンタ）へ分割。
+        <code>device-epoch</code> / <code>user-epoch</code> / <code>device-clear-state</code> を廃止し、
+        ユーザー単位の purge 世代カウンタに置き換える。
+      </p>
+      <p>
+        <strong>移行は「全消去して空で継続」</strong>。表示キャッシュは読み捨て可能なので
+        upgrade でデータ移行せず全削除＋再フェッチに任せる。拒否台帳も移行しない
+        （キャッシュ本体が消えるので復活対象がなく、拒否は次回の 403/404 で再確立される）。
+        OPFS も同時にクリア。移行写経コードを持たないこと自体が保守コストの削減。
+      </p>
+      <div class="ph-risk"><span class="badge p1">リスク: 中</span> 既存ユーザーのキャッシュが一度消失し再構築される。失敗時も同じ「空として継続」に縮退。</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="ph-num">3</div>
+    <div class="ph-body">
+      <div class="ph-title">インメモリ realm の撤去と BroadcastChannel 統合</div>
+      <p>
+        <code>globalSuspended</code> / <code>suspendedUsers</code> / lifetime 系を削除し、
+        fail-closed は durable 台帳と墓標に一本化。BroadcastChannel を 1 本に統合し、
+        受信側は「再読み込み」だけを行うように変更。
+      </p>
+      <div class="ph-risk"><span class="badge p1">リスク: 中</span> 既存 offline-*.spec.ts の期待値（invalidatedError）を書き換える必要がある。</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="ph-num">4</div>
+    <div class="ph-body">
+      <div class="ph-title">リーダーの単純化（fetch → project → display）</div>
+      <p>
+        <code>home-metadata-reader</code> を「ネットワーク取得 → snapshot 構築 → 台帳射影」
+        の純粋な流れに作り替え、保存は detached に。キャッシュ読み戻しによる射影をやめ、
+        スコープ捕捉・公開検証・権威 authority の持ち回りを公開 API から除去。
+      </p>
+      <div class="ph-risk"><span class="badge p1">リスク: 中</span> 拒否射影の純粋関数化が前提。段階的に切り替える。</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="ph-num">5</div>
+    <div class="ph-body">
+      <div class="ph-title">編集層の導入（y-indexeddb）— 表示層と並行可能</div>
+      <p>
+        <code>createYjsSession</code> に <code>IndexeddbPersistence</code> を追加し、
+        <code>effectiveWriteScope === "self"</code> かつ canWrite コラボレーターのいない
+        ノートのみローカル永続化する。資格喪失（共有化・権限変更）を検知したら
+        ローカル doc を破棄。<code>provider.synced</code> で「未送信の編集」表示もここで入れる。
+        表示層の再設計（Phase 0-4）とは独立に進められる。
+      </p>
+      <div class="ph-risk"><span class="badge p1">リスク: 中</span> 資格判定と doc 破棄のタイミング設計が要点。サーバー側の変更は不要（DocumentRoom は既に Yjs）。</div>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="ph-num">6</div>
+    <div class="ph-body">
+      <div class="ph-title">残りの仕上げ — GC 緩和・suspend の durable 化・テスト更新</div>
+      <p>
+        orphan GC を破損レコード単位でスキップ可能にし、「拒否永続化失敗時の suspend」を
+        durable な「キャッシュ無効」フラグに置き換える（purge 成功または明示クリアで解除）。
+        全 offline-*.spec.ts を新しい契約（AbortError を投げない、fail-soft 読み取り）に合わせて更新。
+      </p>
+      <div class="ph-risk"><span class="badge p1">リスク: 中</span> テストの契約変更が大きい。各段階で RED → GREEN を確認。</div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <div class="callout-title">移行の進め方</div>
+    <p>
+      Phase 0–1 は現行 v4 DB を壊さずに適用でき、Phase 2 でスキーマを切り替える。
+      各 Phase は独立してデプロイ可能で、Phase 2 以降も「失敗したらキャッシュを捨てて
+      オンライン表示に縮退」する安全網を残す。<strong>どの段階で止まっても、
+      現行より悪い状態にはならない</strong>ことを各 Phase の完了条件にする。
+    </p>
+  </div>
+
+  <!-- ================================================================ -->
+  <h2 id="files"><span class="num">7</span>参照ファイル一覧</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>ファイル</th><th>役割</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>apps/web/src/lib/offline-cache.ts</code></td><td>IndexedDB v4 + OPFS + epoch/lifetime/denial の権威管理本体（約 3,800 行）</td></tr>
+        <tr><td><code>apps/web/src/lib/home-metadata-reader.ts</code></td><td>ホームのネットワーク取得＋キャッシュ保存＋射影</td></tr>
+        <tr><td><code>apps/web/src/lib/cached-drive-reader.ts</code></td><td>キャッシュ専用ドライブ読み取り</td></tr>
+        <tr><td><code>apps/web/src/lib/note-read-session.ts</code></td><td>ノート本文の network/cache 読み出しセッション</td></tr>
+        <tr><td><code>apps/web/src/lib/attached-images.ts</code></td><td>添付画像の取得・拒否・キャッシュ</td></tr>
+        <tr><td><code>apps/web/src/lib/mydrive-prefetch.ts</code> / <code>mydrive-prefetch-coordinator.ts</code></td><td>バックグラウンド先読みとタブ間排他・トリガー</td></tr>
+        <tr><td><code>apps/web/src/lib/identity-lifecycle.ts</code></td><td>ログアウト/切替時のキャッシュクリア</td></tr>
+        <tr><td><code>apps/web/src/lib/viewer-context.ts</code></td><td>authenticated / guest / cached / unavailable の解決</td></tr>
+        <tr><td><code>apps/web/src/lib/note-access-order.ts</code></td><td>ノートのインメモリ世代と ID 束縛</td></tr>
+        <tr><td><code>apps/web/src/lib/collaboration.ts</code></td><td>y-websocket セッション（WebsocketProvider + awareness）。編集層の接続点</td></tr>
+        <tr><td><code>apps/worker/src/durable-objects/DocumentRoom.ts</code></td><td>ノート毎の Y.Doc 権威。y-websocket サーバー側 + snapshot 射影</td></tr>
+        <tr><td><code>apps/worker/src/durable-objects/snapshot-persistence.ts</code></td><td>yjs-update 永続化と D1 への outbox（alarm デバウンス）</td></tr>
+        <tr><td><code>apps/worker/src/db/schema.sql</code></td><td>D1 スキーマ。「本文のソース・オブ・トゥルースは DocumentRoom」と明記</td></tr>
+        <tr><td><code>packages/shared/src/permission.ts</code></td><td>effectiveWriteScope / evaluateAccess — 「編集権限が自分だけ」の判定根拠</td></tr>
+        <tr><td><code>apps/web/src/lib/note-request.ts</code></td><td>進行中ノート GET の共有</td></tr>
+        <tr><td><code>apps/web/src/lib/storage-write-recovery.ts</code></td><td>quota 超過時の orphan GC + リトライ</td></tr>
+        <tr><td><code>apps/web/src/pages/HomePage.tsx</code> / <code>CachedDriveView.tsx</code></td><td>フォルダ/ノート一覧の表示側</td></tr>
+        <tr><td><code>apps/web/service-worker/sw.ts</code></td><td>PWA shell の precache とナビゲーション fallback</td></tr>
+        <tr><td><code>apps/web/tests/browser/offline-*.spec.ts</code></td><td>期待動作の仕様としてのブラウザテスト群</td></tr>
+        <tr><td><code>docs/offline-pwa.md</code></td><td>合意済み PWA/オフライン仕様</td></tr>
+        <tr><td><code>docs/offline-pwa-decisions.md</code></td><td>意思決定台帳（R/D シリーズ — 現在の機構が追加された経緯）</td></tr>
+        <tr><td><code>docs/offline-pwa-completion.md</code></td><td>完了チェックリスト</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <footer>
+    MiyulabMD offline-mode design spec —
+    本書は設計検討資料であり、実装契約の正本は <code>docs/offline-pwa.md</code> と実コード。
+  </footer>
+</main>
+</div>
+</body>
+</html>

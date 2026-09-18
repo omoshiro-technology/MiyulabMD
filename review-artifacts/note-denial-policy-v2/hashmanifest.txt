@@ -1,0 +1,4 @@
+f177b2d40910cd8d602e2f521a0fe31a133354a370fe63ab052fb59435fe18d9 *apps/web/src/lib/offline-cache.ts
+8acf06472ac5c6b6f87600d84fb45b917748b1c978d35a66599729c9db574840 *apps/web/src/lib/note-read-session.ts
+f177b2d40910cd8d602e2f521a0fe31a133354a370fe63ab052fb59435fe18d9 *review-artifacts/note-denial-policy-v2/offline-cache.ts.txt
+8acf06472ac5c6b6f87600d84fb45b917748b1c978d35a66599729c9db574840 *review-artifacts/note-denial-policy-v2/note-read-session.ts.txt

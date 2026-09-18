@@ -8,4 +8,5 @@ export {
   renderOgCardHtml,
   youtubeEmbedUrl,
   youtubeId,
+  youtubeStartSeconds,
 } from "@miyulabmd/markdown";

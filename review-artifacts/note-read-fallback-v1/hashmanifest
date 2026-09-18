@@ -1,0 +1,3 @@
+original_source_sha256  c937729ff15d9f9183d99fb3552149eca5c89215023b149ad54dc7e60524f940  apps/web/src/lib/note-read-session.ts (captured before implementation)
+candidate_source_sha256 100608a4d4b28fd6ec1d759690978456ee2a70a297f3ab432e6d362900e8ac22  apps/web/src/lib/note-read-session.ts (tested candidate)
+snapshot_sha256         100608a4d4b28fd6ec1d759690978456ee2a70a297f3ab432e6d362900e8ac22  apps/web/src/lib/note-read-session.ts.txt

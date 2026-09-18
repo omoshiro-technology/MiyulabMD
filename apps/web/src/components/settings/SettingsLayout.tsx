@@ -18,6 +18,18 @@ const GROUPS: SettingsGroup[] = [
     label: "アカウント",
   },
   {
+    items: [{ label: "エディタ設定", to: "/settings/editor" }],
+    label: "エディタ",
+  },
+  {
+    items: [
+      { label: "PARA メソッド", to: "/settings/knowledge/para" },
+      { label: "命名規則", to: "/settings/knowledge/schemes" },
+      { label: "メダリオン層", to: "/settings/knowledge/layers" },
+    ],
+    label: "ナレッジ管理",
+  },
+  {
     items: [{ label: "MCP設定", to: "/settings/mcp" }],
     label: "開発者",
   },

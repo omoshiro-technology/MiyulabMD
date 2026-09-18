@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.12/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.13/schema.json",
   "assist": {
     "actions": {
       "source": {
@@ -41,7 +41,8 @@
       "!**/pnpm-lock.yaml",
       "!**/worker-configuration.d.ts",
       "!.github/cursor/render-package-upgrade-table.mjs",
-      "!docs/brand"
+      "!docs/brand",
+      "!specs"
     ]
   },
   "formatter": {

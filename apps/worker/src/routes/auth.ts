@@ -1,8 +1,10 @@
+import type { SessionUser, UserSettings } from "@miyulabmd/shared";
 import {
   accessLoginUrl,
   isAccessConfigured,
   verifyAccessJwt,
 } from "../auth/access.ts";
+import { withApiSessionIdentity } from "../auth/api-response.ts";
 import {
   clearSessionCookieHeader,
   createSessionToken,
@@ -12,11 +14,17 @@ import {
   sessionCookieHeader,
 } from "../auth/session.ts";
 import {
+  type DbUser,
+  findUserById,
   toSessionUser,
   updateDisplayName,
   upsertUserByEmail,
 } from "../db/users.ts";
 import { envTruthy } from "../env.ts";
+import {
+  readUserSettings,
+  updateUserKnowledgeSettings,
+} from "../services/settings.ts";
 
 function isDevAuthEnabled(env: Env): boolean {
   return envTruthy(env.DEV_AUTH);
@@ -132,6 +140,29 @@ function logoutResponse(
   return new Response(JSON.stringify({ ok: true }), { headers, status: 200 });
 }
 
+async function handleLogout(request: Request, env: Env): Promise<Response> {
+  if (
+    request.method !== "POST" ||
+    request.headers.get("X-MiyulabMD-Logout") !== "prepare"
+  ) {
+    return logoutResponse(request, env, request.method === "GET");
+  }
+  // Preparation clears the app cookie without following Access through fetch.
+  // The client must still navigate the native GET for Access completion.
+  const actor = await readSession(request, env);
+  return withApiSessionIdentity(
+    Response.json(
+      { ok: true },
+      {
+        headers: {
+          "Set-Cookie": clearSessionCookieHeader(requestIsHttps(request)),
+        },
+      },
+    ),
+    actor,
+  );
+}
+
 /** Access 通過後の生 Request を Elysia を介さず処理する。 */
 export async function handleAuthRequest(
   request: Request,
@@ -143,7 +174,7 @@ export async function handleAuthRequest(
   }
 
   if (pathname === "/auth/logout") {
-    return logoutResponse(request, env, request.method === "GET");
+    return handleLogout(request, env);
   }
 
   if (pathname !== "/auth/login" && pathname !== "/auth/callback") {
@@ -182,6 +213,61 @@ export async function handleAuthRequest(
   return new Response("Cloudflare Access is not configured", { status: 503 });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function badRequest(error: string): Response {
+  return new Response(JSON.stringify({ error }), {
+    headers: { "Content-Type": "application/json" },
+    status: 400,
+  });
+}
+
+function notFound(): Response {
+  return new Response(JSON.stringify({ error: "Not found" }), {
+    headers: { "Content-Type": "application/json" },
+    status: 404,
+  });
+}
+
+type UpdateMePatch = {
+  /** undefined = キー未指定（更新しない）。null は明示的なクリア。 */
+  displayName?: string | null;
+  knowledge?: Record<string, unknown>;
+};
+
+async function parseUpdateMeBody(
+  request: Request,
+): Promise<UpdateMePatch | Response> {
+  let body: { displayName?: unknown; settings?: unknown };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return badRequest("Invalid JSON body");
+  }
+  const patch: UpdateMePatch = {};
+  if (body.displayName !== undefined) {
+    if (typeof body.displayName !== "string" && body.displayName !== null) {
+      return badRequest("displayName must be a string");
+    }
+    patch.displayName = body.displayName;
+  }
+  if (body.settings !== undefined) {
+    if (!isRecord(body.settings)) {
+      return badRequest("settings must be an object");
+    }
+    const knowledge = body.settings.knowledge;
+    if (knowledge !== undefined) {
+      if (!isRecord(knowledge)) {
+        return badRequest("settings.knowledge must be an object");
+      }
+      patch.knowledge = knowledge;
+    }
+  }
+  return patch;
+}
+
 export async function handleUpdateMe(
   request: Request,
   env: Env,
@@ -194,36 +280,40 @@ export async function handleUpdateMe(
     });
   }
 
-  let displayName: string | null = null;
-  try {
-    const body = (await request.json()) as { displayName?: unknown };
-    if (typeof body.displayName === "string") {
-      displayName = body.displayName;
-    } else if (body.displayName !== null && body.displayName !== undefined) {
-      return new Response(
-        JSON.stringify({ error: "displayName must be a string" }),
-        {
-          headers: { "Content-Type": "application/json" },
-          status: 400,
-        },
-      );
+  const patch = await parseUpdateMeBody(request);
+  if (patch instanceof Response) {
+    return patch;
+  }
+
+  // displayName / settings.knowledge とも部分更新。未指定のキーは触らない
+  // （settings だけの PATCH で表示名が消えないようにする）。
+  let updated: DbUser | null = null;
+  if (patch.displayName !== undefined) {
+    updated = await updateDisplayName(env, session.id, patch.displayName);
+    if (!updated) {
+      return notFound();
     }
-  } catch {
-    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
-      headers: { "Content-Type": "application/json" },
-      status: 400,
-    });
   }
 
-  const updated = await updateDisplayName(env, session.id, displayName);
+  let settings: UserSettings | null = null;
+  if (patch.knowledge) {
+    settings = await updateUserKnowledgeSettings(
+      env,
+      session.id,
+      patch.knowledge,
+    );
+    if (!settings) {
+      return notFound();
+    }
+  }
+
+  updated ??= await findUserById(env, session.id);
   if (!updated) {
-    return new Response(JSON.stringify({ error: "Not found" }), {
-      headers: { "Content-Type": "application/json" },
-      status: 404,
-    });
+    return notFound();
   }
+  settings ??= await readUserSettings(env, session.id);
 
-  const user = toSessionUser(updated);
+  const user: SessionUser = { ...toSessionUser(updated), settings };
   const setCookie = await sessionCookieHeader(
     user,
     env,

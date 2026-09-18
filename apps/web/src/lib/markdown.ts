@@ -3,6 +3,7 @@ import {
   normalizeEmbedMarkdown,
   type OgPreview,
   renderMarkdownHtml as renderMarkdownHtmlBase,
+  type WikiLinkMap,
 } from "@miyulabmd/markdown";
 import { fetchOgPreview, peekOgPreview } from "./api.ts";
 
@@ -24,8 +25,9 @@ export function peekOgCards(markdown: string): Map<string, OgPreview> {
 export function renderMarkdownHtml(
   markdown: string,
   cards: Map<string, OgPreview> = peekOgCards(markdown),
+  wikiLinks?: WikiLinkMap,
 ): string {
-  return renderMarkdownHtmlBase(markdown, cards);
+  return renderMarkdownHtmlBase(markdown, cards, wikiLinks);
 }
 
 export async function loadOgCards(

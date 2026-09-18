@@ -2,6 +2,10 @@ import type { SessionUser } from "@miyulabmd/shared";
 import { type FormEvent, useRef, useState } from "react";
 import { useDismiss } from "../../hooks/use-dismiss.ts";
 import type { AuthConfig } from "../../lib/api.ts";
+import {
+  logoutAndClearIdentity,
+  PurgeCancelledError,
+} from "../../lib/identity-lifecycle.ts";
 import { colorForEmail } from "../../lib/user-style.ts";
 import { Avatar } from "../ui/Avatar.tsx";
 import { Button } from "../ui/Button.tsx";
@@ -19,14 +23,18 @@ const GUEST_LABEL = "ゲスト";
 
 type Props = {
   user: SessionUser | null;
+  /** Display-only profile restored from the offline cache; never authenticated. */
+  cachedUser?: SessionUser | null;
   authConfig: AuthConfig;
 };
 
-export function AccountMenu({ user, authConfig }: Props) {
+export function AccountMenu({ user, cachedUser, authConfig }: Props) {
   const [open, setOpen] = useState(false);
   const [loginEmail, setLoginEmail] = useState("dev@example.com");
   const rootRef = useRef<HTMLDivElement>(null);
-  const label = user?.displayName?.trim() || user?.email || GUEST_LABEL;
+  const displayUser = user ?? cachedUser ?? null;
+  const label =
+    displayUser?.displayName?.trim() || displayUser?.email || GUEST_LABEL;
   const mockLogin = !(user || authConfig.access) && authConfig.mock;
   useDismiss(open, () => setOpen(false), rootRef);
 
@@ -50,16 +58,16 @@ export function AccountMenu({ user, authConfig }: Props) {
         type="button"
       >
         <Avatar
-          color={colorForEmail(user?.email, user?.id)}
+          color={colorForEmail(displayUser?.email, displayUser?.id)}
           name={label}
           size="md"
         />
       </button>
       {open && (
         <MenuPanel width="20rem">
-          <MenuHeader email={user?.email} name={label}>
+          <MenuHeader email={displayUser?.email} name={label}>
             <Avatar
-              color={colorForEmail(user?.email, user?.id)}
+              color={colorForEmail(displayUser?.email, displayUser?.id)}
               name={label}
               size="lg"
             />
@@ -70,12 +78,37 @@ export function AccountMenu({ user, authConfig }: Props) {
             <ThemeSwitch />
           </MenuRow>
           <MenuSeparator />
+          {!user && cachedUser && (
+            <>
+              <MenuRow>
+                <span className="text-[0.85rem] text-muted">
+                  キャッシュから閲覧中
+                </span>
+              </MenuRow>
+              <MenuSeparator />
+            </>
+          )}
           {user && (
             <>
               <MenuItem onClick={() => setOpen(false)} to="/settings">
                 設定
               </MenuItem>
-              <MenuItem href="/auth/logout">ログアウト</MenuItem>
+              <MenuItem
+                onClick={() => {
+                  setOpen(false);
+                  void logoutAndClearIdentity(user.id).catch(
+                    (error: unknown) => {
+                      if (error instanceof PurgeCancelledError) {
+                        return;
+                      }
+                      // AppShell owns the warning after this menu's user disappears.
+                      console.error("Logout did not complete", error);
+                    },
+                  );
+                }}
+              >
+                ログアウト
+              </MenuItem>
             </>
           )}
           {!user && mockLogin && (

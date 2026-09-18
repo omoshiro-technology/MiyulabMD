@@ -45,14 +45,80 @@ export {
   validateArticleDocument,
   withClosedFrontmatter,
 } from "./frontmatter.ts";
+export type {
+  KnowledgeFeatureKey,
+  KnowledgeSettings,
+  UserSettings,
+} from "./knowledge.ts";
+export {
+  DEFAULT_KNOWLEDGE_SETTINGS,
+  DEFAULT_USER_SETTINGS,
+  isKnowledgeFeatureKey,
+  KNOWLEDGE_FEATURE_KEYS,
+  normalizeKnowledgeSettings,
+  parseUserSettingsObject,
+  userSettingsFromObject,
+} from "./knowledge.ts";
 export type { McpToolName } from "./mcp.ts";
-export { MCP_TOOLS } from "./mcp.ts";
+export { MCP_NOTE_URL_HINT, MCP_TOOLS } from "./mcp.ts";
+export type {
+  MedallionAssignment,
+  MedallionLayer,
+  MedallionResolution,
+  MedallionSet,
+} from "./medallion.ts";
+export {
+  DEFAULT_MEDALLION_LAYERS,
+  DEFAULT_MEDALLION_SET_NAME,
+  isMedallionLayerKey,
+  medalForLayerIndex,
+  medalForLayerKey,
+  parseMedallionLayers,
+  resolveMedallionAssignment,
+} from "./medallion.ts";
+export type {
+  MoveFolderContentsResult,
+  MoveFolderItem,
+  MoveFolderResult,
+  MoveItemReason,
+  MoveItemStatus,
+  MoveNoteItem,
+  MoveNotesResult,
+  MovePlan,
+  ParaBucket,
+  ParaBucketKey,
+  ParaBucketResolution,
+  ParaEnableInput,
+  ParaEnableResult,
+  ParaListResult,
+  ParaPlan,
+  ParaPlanBucket,
+  ParaPlanExisting,
+  ParaPlanStatus,
+  ParaResolutionKey,
+  ParaSpacePlan,
+  ParaSpaceRef,
+  ParaSpaceSelector,
+  ParaSpaceSummary,
+} from "./move.ts";
+export {
+  DEFAULT_PARA_SPACE_NAME,
+  isParaBucketKey,
+  MOVE_MAX_ITEMS,
+  PARA_BUCKETS,
+} from "./move.ts";
 export type {
   AccessGrantInput,
   CreateNoteInput,
   FolderAccess,
+  FolderChildrenResult,
   FolderCrumb,
+  FolderEntry,
+  FolderEntryFolder,
+  FolderEntryNote,
   FolderRecord,
+  GrepMatch,
+  GrepResult,
   Note,
   NoteAccess,
   NoteCollaborator,
@@ -65,16 +131,25 @@ export type {
   NoteRevision,
   NoteRevisionBody,
   NoteRevisionRestore,
+  NoteSearchHit,
+  NoteSearchPage,
   NoteSummary,
+  SearchScope,
   UpdateFolderAccessInput,
   UpdateNoteMetaInput,
+  WorkspaceSearchResult,
 } from "./note.ts";
 export {
+  EDIT_LOCK_WS_CLOSE_CODE,
+  EDIT_LOCK_WS_CLOSE_REASON,
+  EDIT_LOCKED_CODE,
   isNoteEditOp,
   isNoteHistoryActorKind,
+  isSearchScope,
   NOTE_EDIT_OPS,
   NOTE_HISTORY_ACTOR_KINDS,
   NOTE_RESTORE_MESSAGE,
+  SEARCH_SCOPES,
 } from "./note.ts";
 export type {
   AccessGrant,
@@ -107,6 +182,57 @@ export {
   rewriteFolderPrefix,
   scopesFromPreset,
 } from "./permission.ts";
+export type {
+  JdLevel,
+  NamingScheme,
+  SchemeRootEntry,
+  SchemeSuggestion,
+  SchemeValidateResult,
+  SchemeValidationIssue,
+} from "./schemes.ts";
+export {
+  formatJdArea,
+  formatJdId,
+  formatSchemeFolderName,
+  isNamingScheme,
+  isZettelId,
+  JD_GROUP_MAX,
+  JD_ID_MAX,
+  JD_RESERVED_MAX,
+  jdChildLevel,
+  jdLevelOf,
+  looksLikeSchemeId,
+  NAMING_SCHEME_LABELS,
+  NAMING_SCHEMES,
+  parseJdArea,
+  parseJdCategory,
+  parseJdId,
+  zettelStamp,
+} from "./schemes.ts";
+export type {
+  LayerFilterValue,
+  ParaFilterValue,
+  SearchDslFilter,
+  SearchDslOperator,
+  SearchQuery,
+  SearchTerm,
+} from "./search-dsl.ts";
+export {
+  layerFilterValue,
+  paraFilterValue,
+  parseSearchQuery,
+  pathFilterMatches,
+  SEARCH_DSL_OPERATORS,
+  schemeFilterValue,
+  tagFilterValue,
+  tokenizeSearchQuery,
+} from "./search-dsl.ts";
+export {
+  encodeSnapshotSaved,
+  isSnapshotSavedForRoom,
+  MESSAGE_SNAPSHOT_SAVED,
+  SNAPSHOT_SAVED_VERSION,
+} from "./snapshot-saved.ts";
 export {
   defaultNoteMarkdown,
   folderUrl,
@@ -117,3 +243,19 @@ export {
   titleFromMarkdown,
 } from "./title.ts";
 export type { SessionUser, User } from "./user.ts";
+export type {
+  BrokenLinkItem,
+  NoteBacklinkItem,
+  NoteLinkItem,
+  NoteLinksResult,
+  NoteLinkType,
+  ParsedNoteLink,
+  WikiLinkResolution,
+} from "./wikilinks.ts";
+export {
+  lineForOffset,
+  maskCodeRegions,
+  NOTE_UUID_RE,
+  parseNoteLinks,
+  parseWikiLinkInner,
+} from "./wikilinks.ts";

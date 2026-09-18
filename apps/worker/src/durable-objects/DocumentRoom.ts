@@ -1,5 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
-import type { NoteHistoryActor } from "@miyulabmd/shared";
+import type { TaskCheckboxUpdate } from "@miyulabmd/markdown";
+import {
+  EDIT_LOCK_WS_CLOSE_CODE,
+  EDIT_LOCK_WS_CLOSE_REASON,
+  type NoteHistoryActor,
+} from "@miyulabmd/shared";
 import * as decoding from "lib0/decoding";
 import * as encoding from "lib0/encoding";
 import * as awarenessProtocol from "y-protocols/awareness";
@@ -22,6 +27,7 @@ import {
   encodeAwarenessNullUpdate,
   nextAwarenessClocks,
 } from "./awareness-sync.ts";
+import { EditLockRecheck, type EditLockRow } from "./edit-lock.ts";
 import {
   APPLY_EDIT_ORIGIN,
   APPLY_MARKDOWN_ORIGIN,
@@ -46,15 +52,19 @@ import {
   planInsert,
   planReplace,
 } from "./markdown-edit.ts";
+import {
+  SnapshotPersistence,
+  STORAGE_YJS_KEY,
+} from "./snapshot-persistence.ts";
+import { writeSnapshotAndNotify } from "./snapshot-saved.ts";
+import { applyTaskCheckbox } from "./task-checkbox.ts";
 
 /** y-websocket 互換のトップレベルメッセージ種別。 */
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
 const MESSAGE_QUERY_AWARENESS = 3;
 
-const STORAGE_YJS_KEY = "yjs-update";
 const STORAGE_NOTE_ID_KEY = "note-id";
-const SNAPSHOT_DEBOUNCE_MS = 3000;
 
 type WsAttachment = {
   canEdit: boolean;
@@ -98,10 +108,18 @@ export type ApplyEditResult =
     }
   | {
       ok: false;
-      error: "not_found" | "ambiguous" | "invalid";
+      error: "not_found" | "ambiguous" | "invalid" | "locked";
       message: string;
       matches?: number;
     };
+
+const EDIT_LOCKED_MESSAGE =
+  "edit_locked: this note is edit-locked. Call set_edit_lock first.";
+
+export type TaskCheckboxResult =
+  | { checked: boolean; ok: true }
+  | { error: "conflict"; ok: false }
+  | { error: "locked"; message: string; ok: false };
 
 /**
  * ノート 1 件につき 1 Durable Object。
@@ -111,7 +129,26 @@ export class DocumentRoom extends DurableObject<Env> {
   private doc: Y.Doc | null = null;
   private awareness: awarenessProtocol.Awareness | null = null;
   private loading: Promise<void> | null = null;
-  private snapshotTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly snapshots = new SnapshotPersistence(
+    this.ctx.storage,
+    async (markdown) => {
+      const noteId = await this.ctx.storage.get<string>(STORAGE_NOTE_ID_KEY);
+      if (!noteId) {
+        throw new Error("Cannot persist snapshot without note ID");
+      }
+      const result = await writeSnapshotAndNotify(
+        () => persistMarkdownSnapshot(this.env, noteId, markdown),
+        noteId,
+        () => this.ctx.getWebSockets(),
+      );
+      if (result === "rejected") {
+        console.warn(`markdown snapshot rejected for note ${noteId}`);
+      }
+    },
+  );
+  // X-Can-Edit is fixed at connect time; this re-checks the §2.6 edit
+  // lock against D1 so a mid-session lock/unlock takes effect.
+  private readonly editLock = new EditLockRecheck(() => this.readEditLockRow());
   private agentIdleTimer: ReturnType<typeof setTimeout> | null = null;
   private historyPending = new Map<string, PendingHistorySession>();
   private historyMarkdown = new Map<string, string>();
@@ -193,12 +230,20 @@ export class DocumentRoom extends DurableObject<Env> {
         const syncMessageType = decoding.readVarUint(decoder);
         decoder.pos = syncTypePos;
 
-        if (
-          !canEdit &&
-          (syncMessageType === syncProtocol.messageYjsSyncStep2 ||
-            syncMessageType === syncProtocol.messageYjsUpdate)
-        ) {
-          break;
+        const isWrite =
+          syncMessageType === syncProtocol.messageYjsSyncStep2 ||
+          syncMessageType === syncProtocol.messageYjsUpdate;
+        if (isWrite) {
+          if (!canEdit) {
+            break;
+          }
+          if (await this.editLock.locked()) {
+            // X-Can-Edit is frozen at connect time, so the client still
+            // believes it can edit. Close writable sockets with a permanent
+            // app-level code instead of silently dropping the update.
+            this.closeLockedWriters();
+            break;
+          }
         }
 
         const encoder = encoding.createEncoder();
@@ -283,16 +328,70 @@ export class DocumentRoom extends DurableObject<Env> {
     // 接続エラーは webSocketClose で後処理する。
   }
 
+  /**
+   * The edit lock engaged mid-session. Every socket accepted with
+   * X-Can-Edit=true is revoked and closed with a permanent code so clients
+   * flip to read-only; read-only sockets keep syncing/awareness.
+   */
+  private closeLockedWriters(): void {
+    for (const socket of this.ctx.getWebSockets()) {
+      try {
+        const attachment =
+          socket.deserializeAttachment() as WsAttachment | null;
+        if (!attachment?.canEdit) {
+          continue;
+        }
+        attachment.canEdit = false;
+        socket.serializeAttachment(attachment);
+        socket.close(EDIT_LOCK_WS_CLOSE_CODE, EDIT_LOCK_WS_CLOSE_REASON);
+      } catch {
+        // A socket already tearing down needs no revocation.
+      }
+    }
+  }
+
   async applyMarkdown(markdown: string, noteId?: string): Promise<void> {
     await this.ensureInitialized(noteId);
     const ytext = this.requireDoc().getText("markdown");
     applyTextDiff(ytext, markdown, APPLY_MARKDOWN_ORIGIN);
-    this.scheduleSnapshotPersist();
+    await this.persistYjsState(this.requireDoc());
   }
 
   async getMarkdown(noteId?: string): Promise<string> {
     await this.ensureInitialized(noteId);
     return this.requireDoc().getText("markdown").toString();
+  }
+
+  async updateTaskCheckbox(
+    noteId: string,
+    input: TaskCheckboxUpdate,
+    actor: NoteHistoryActor,
+  ): Promise<TaskCheckboxResult> {
+    await this.ensureInitialized(noteId);
+    if (await this.editLock.lockedNow()) {
+      return { error: "locked", message: EDIT_LOCKED_MESSAGE, ok: false };
+    }
+    const doc = this.requireDoc();
+    const result = await applyTaskCheckbox(doc.getText("markdown"), input);
+    if (!result.ok) {
+      return { error: "conflict", ok: false };
+    }
+    const markdown = doc.getText("markdown").toString();
+    // Acknowledge only after durable storage; the normal Yjs update broadcasts to editors.
+    await this.persistYjsState(doc);
+    await this.flushSnapshotToD1();
+    if (result.changed) {
+      const session = sessionFromApplyEdit(
+        actor,
+        { anchor: result.offset, head: result.offset + 1 },
+        "replace",
+        Date.now(),
+      );
+      await this.persistHistorySession(session, markdown).catch(
+        () => undefined,
+      );
+    }
+    return { checked: result.checked, ok: true as const };
   }
 
   /** 最新本文を返し、エージェントのカーソルを出す。 */
@@ -323,6 +422,9 @@ export class DocumentRoom extends DurableObject<Env> {
 
   async applyEdit(input: ApplyEditInput): Promise<ApplyEditResult> {
     await this.ensureInitialized(input.noteId);
+    if (await this.editLock.lockedNow()) {
+      return { error: "locked", message: EDIT_LOCKED_MESSAGE, ok: false };
+    }
     const ytext = this.requireDoc().getText("markdown");
     const current = ytext.toString();
 
@@ -350,7 +452,7 @@ export class DocumentRoom extends DurableObject<Env> {
 
     applyTextDiff(ytext, plan.next, APPLY_EDIT_ORIGIN);
     this.touchAgentPresence(input.agent, plan.cursor);
-    this.scheduleSnapshotPersist();
+    await this.persistYjsState(this.requireDoc());
     await this.recordApplyEditHistory(input, plan.cursor, plan.next);
 
     return {
@@ -368,11 +470,14 @@ export class DocumentRoom extends DurableObject<Env> {
     actor: NoteHistoryActor,
   ): Promise<ApplyEditResult> {
     await this.ensureInitialized(noteId);
+    if (await this.editLock.lockedNow()) {
+      return { error: "locked", message: EDIT_LOCKED_MESSAGE, ok: false };
+    }
     const ytext = this.requireDoc().getText("markdown");
     const current = ytext.toString();
     const cursor = cursorAfterSet(current, markdown);
     applyTextDiff(ytext, markdown, APPLY_EDIT_ORIGIN);
-    this.scheduleSnapshotPersist();
+    await this.persistYjsState(this.requireDoc());
     const session = sessionFromApplyEdit(actor, cursor, "restore", Date.now());
     await this.persistHistorySession(session, markdown).catch(() => undefined);
     return {
@@ -381,6 +486,17 @@ export class DocumentRoom extends DurableObject<Env> {
       markdownLength: markdown.length,
       ok: true,
     };
+  }
+
+  private async readEditLockRow(): Promise<EditLockRow | null> {
+    const noteId = await this.ctx.storage.get<string>(STORAGE_NOTE_ID_KEY);
+    if (!noteId) {
+      return null;
+    }
+    return db(this.env)
+      .prepare("SELECT edit_locked FROM notes WHERE id = ?")
+      .bind(noteId)
+      .first<EditLockRow>();
   }
 
   private async ensureInitialized(noteId?: string): Promise<void> {
@@ -434,7 +550,7 @@ export class DocumentRoom extends DurableObject<Env> {
     });
 
     doc.on("update", (update: Uint8Array, origin: unknown) => {
-      void this.onDocUpdate(update, origin);
+      this.ctx.waitUntil(this.onDocUpdate(update, origin));
     });
 
     awareness.on("update", (changes: AwarenessChanges, origin: unknown) => {
@@ -457,12 +573,11 @@ export class DocumentRoom extends DurableObject<Env> {
 
     await this.persistYjsState(doc);
     this.broadcastSyncUpdate(update, origin);
-    this.scheduleSnapshotPersist();
   }
 
   private async persistYjsState(doc: Y.Doc): Promise<void> {
     const merged = Y.encodeStateAsUpdate(doc);
-    await this.ctx.storage.put(STORAGE_YJS_KEY, merged);
+    await this.snapshots.persist(merged, doc.getText("markdown").toString());
   }
 
   private broadcastSyncUpdate(update: Uint8Array, origin: unknown): void {
@@ -592,25 +707,12 @@ export class DocumentRoom extends DurableObject<Env> {
     }
   }
 
-  private scheduleSnapshotPersist(): void {
-    if (this.snapshotTimer !== null) {
-      clearTimeout(this.snapshotTimer);
-    }
-
-    this.snapshotTimer = setTimeout(() => {
-      this.snapshotTimer = null;
-      void this.flushSnapshotToD1();
-    }, SNAPSHOT_DEBOUNCE_MS);
+  async alarm(): Promise<void> {
+    await this.flushSnapshotToD1();
   }
 
   private async flushSnapshotToD1(): Promise<void> {
-    const noteId = await this.ctx.storage.get<string>(STORAGE_NOTE_ID_KEY);
-    if (!(noteId && this.doc)) {
-      return;
-    }
-
-    const markdown = this.doc.getText("markdown").toString();
-    await persistMarkdownSnapshot(this.env, noteId, markdown);
+    await this.snapshots.flush();
   }
 
   private onMarkdownHistory(

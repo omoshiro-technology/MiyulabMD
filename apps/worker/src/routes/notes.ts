@@ -1,6 +1,8 @@
 import { env } from "cloudflare:workers";
+import { isTaskCheckboxUpdate } from "@miyulabmd/markdown";
 import {
   type CreateNoteInput,
+  EDIT_LOCKED_CODE,
   NOTE_RESTORE_MESSAGE,
   type Note,
   type SessionUser,
@@ -11,6 +13,8 @@ import { Elysia } from "elysia";
 import { readSession } from "../auth/session.ts";
 import { actorFromSessionUser } from "../durable-objects/history-edit.ts";
 import { getNoteRevision, listNoteEditEvents } from "../services/history.ts";
+import { listNoteLinks } from "../services/links.ts";
+import { moveNotes } from "../services/move.ts";
 import { createNoteService, type MutateNoteResult } from "../services/notes.ts";
 
 function documentRoom(noteId: string) {
@@ -59,7 +63,10 @@ function mutateResultError(
     return { error: result.error };
   }
   set.status = result.status;
-  return { error: result.status === 401 ? "Unauthorized" : "Forbidden" };
+  return {
+    error:
+      result.code ?? (result.status === 401 ? "Unauthorized" : "Forbidden"),
+  };
 }
 
 async function applyNotePatch(
@@ -114,6 +121,40 @@ export const noteRoutes = new Elysia({ prefix: "/api/notes" })
 
     set.status = 201;
     return created;
+  })
+  .post("/move", async ({ request, set }) => {
+    const user = await readSession(request, env);
+    const body = await parseJsonBody<{
+      noteIds?: string[];
+      destFolderId?: string | null;
+      dryRun?: boolean;
+    }>(request);
+    if (!(body && Array.isArray(body.noteIds))) {
+      set.status = 400;
+      return { error: "noteIds が必要です" };
+    }
+    const result = await moveNotes(
+      env,
+      {
+        destFolderId: body.destFolderId,
+        dryRun: body.dryRun,
+        noteIds: body.noteIds,
+      },
+      user ?? undefined,
+    );
+    if (result.kind === "not_found") {
+      set.status = 404;
+      return { error: "Not found" };
+    }
+    if (result.kind === "denied") {
+      set.status = result.status;
+      return { error: result.status === 401 ? "Unauthorized" : "Forbidden" };
+    }
+    if (result.kind === "invalid") {
+      set.status = result.status;
+      return { error: result.error };
+    }
+    return result.result;
   })
   .get("/:id/history", async ({ request, params, set }) => {
     const user = await readSession(request, env);
@@ -175,6 +216,10 @@ export const noteRoutes = new Elysia({ prefix: "/api/notes" })
         set.status = user ? 403 : 401;
         return { error: user ? "Forbidden" : "Unauthorized" };
       }
+      if (result.note.editLocked) {
+        set.status = 403;
+        return { error: EDIT_LOCKED_CODE };
+      }
 
       const revision = await getNoteRevision(
         env,
@@ -203,6 +248,37 @@ export const noteRoutes = new Elysia({ prefix: "/api/notes" })
       };
     },
   )
+  // §2.6 permanent edit lock — the only mutation allowed on a locked note.
+  .post("/:id/lock", async ({ request, params, set }) => {
+    const user = await readSession(request, env);
+    const body = await parseJsonBody<{ locked?: boolean }>(request);
+    if (typeof body?.locked !== "boolean") {
+      set.status = 400;
+      return { error: "locked（true/false）を指定してください" };
+    }
+    const result = await notes.setEditLock(
+      params.id,
+      user ?? undefined,
+      body.locked,
+    );
+    if (result.kind !== "ok") {
+      return mutateResultError(set, result);
+    }
+    return result.note;
+  })
+  .get("/:id/links", async ({ request, params, set }) => {
+    const user = await readSession(request, env);
+    const result = await listNoteLinks(env, params.id, user ?? undefined);
+    if (result.kind === "not_found") {
+      set.status = 404;
+      return { error: "Not found" };
+    }
+    if (result.kind === "denied") {
+      set.status = result.status;
+      return { error: result.status === 401 ? "Unauthorized" : "Forbidden" };
+    }
+    return result.result;
+  })
   .get("/:id", async ({ request, params, set }) => {
     const user = await readSession(request, env);
     const result = await notes.get(params.id, user ?? undefined);
@@ -217,6 +293,44 @@ export const noteRoutes = new Elysia({ prefix: "/api/notes" })
     }
 
     return result.note;
+  })
+  .patch("/:id/task-checkbox", async ({ request, params, set }) => {
+    const user = await readSession(request, env);
+    const result = await notes.get(params.id, user ?? undefined);
+    if (result.kind !== "ok") {
+      return mutateResultError(set, result);
+    }
+    if (!result.note.access.flags.canEdit) {
+      set.status = user ? 403 : 401;
+      return { error: user ? "Forbidden" : "Unauthorized" };
+    }
+    if (result.note.editLocked) {
+      set.status = 403;
+      return { error: EDIT_LOCKED_CODE };
+    }
+    const body = await parseJsonBody<unknown>(request);
+    if (!isTaskCheckboxUpdate(body)) {
+      set.status = 400;
+      return { error: "Invalid task checkbox update" };
+    }
+    const applied = await documentRoom(result.note.id).updateTaskCheckbox(
+      result.note.id,
+      body,
+      actorFromSessionUser(user ?? null),
+    );
+    if (!applied.ok) {
+      if (applied.error === "locked") {
+        set.status = 403;
+        return { error: EDIT_LOCKED_CODE };
+      }
+      set.status = 409;
+      return {
+        error:
+          "本文が変更されています。再読み込みしてからチェック状態を更新してください。",
+        ok: false,
+      };
+    }
+    return applied;
   })
   .patch("/:id", async ({ request, params, set }) => {
     const user = await readSession(request, env);
@@ -238,7 +352,10 @@ export const noteRoutes = new Elysia({ prefix: "/api/notes" })
     }
     if (result.kind === "denied") {
       set.status = result.status;
-      return { error: result.status === 401 ? "Unauthorized" : "Forbidden" };
+      return {
+        error:
+          result.code ?? (result.status === 401 ? "Unauthorized" : "Forbidden"),
+      };
     }
 
     set.status = 204;

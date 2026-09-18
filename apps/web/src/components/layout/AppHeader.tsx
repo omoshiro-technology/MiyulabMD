@@ -5,26 +5,36 @@ import { Link } from "react-router";
 import type { AuthConfig } from "../../lib/api.ts";
 import { cn } from "../../lib/cn.ts";
 
+import { IconButton } from "../ui/IconButton.tsx";
+import { SearchIcon } from "../ui/icons.tsx";
 import { MutedText } from "../ui/Text.tsx";
 import { AccountMenu } from "./AccountMenu.tsx";
+import { OfflineStatusBadge } from "./OfflineStatusBadge.tsx";
 import { SitePublishButton } from "./SitePublishButton.tsx";
 
 type Props = {
   actions?: ReactNode;
+  cachedUser?: SessionUser | null;
   end?: ReactNode;
   folder?: string | null;
+  /** サーバーと疎通できずローカルキャッシュで表示しているとき true。 */
+  offline?: boolean;
   user: SessionUser | null;
   loading: boolean;
   authConfig: AuthConfig;
+  onOpenSearch?: () => void;
 };
 
 export function AppHeader({
   actions,
+  cachedUser,
   end,
   folder,
+  offline,
   user,
   loading,
   authConfig,
+  onOpenSearch,
 }: Props) {
   const headerRef = useRef<HTMLElement>(null);
 
@@ -58,7 +68,7 @@ export function AppHeader({
       )}
       ref={headerRef}
     >
-      <div className="col-start-1 row-start-1 flex min-w-0 items-center">
+      <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-1">
         <Link
           aria-label="MiyulabMD ホーム"
           className="shrink-0 font-bold text-inherit no-underline"
@@ -66,6 +76,7 @@ export function AppHeader({
         >
           MiyulabMD
         </Link>
+        {offline && <OfflineStatusBadge />}
       </div>
       {actions && (
         <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-center">
@@ -78,12 +89,27 @@ export function AppHeader({
           actions ? "col-start-3" : "col-start-2",
         )}
       >
+        {onOpenSearch && (
+          <IconButton
+            aria-label="検索 (Ctrl+K)"
+            className="[[data-layout=editor]_&]:max-[640px]:hidden"
+            onClick={onOpenSearch}
+            title="検索 (Ctrl+K)"
+            variant="ghost"
+          >
+            <SearchIcon />
+          </IconButton>
+        )}
         <SitePublishButton folder={folder} user={user} />
         {end}
         {loading ? (
           <MutedText className="m-0">…</MutedText>
         ) : (
-          <AccountMenu authConfig={authConfig} user={user} />
+          <AccountMenu
+            authConfig={authConfig}
+            cachedUser={cachedUser}
+            user={user}
+          />
         )}
       </nav>
     </header>

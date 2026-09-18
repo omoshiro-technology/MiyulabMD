@@ -1,18 +1,28 @@
-import { EditorState } from "@codemirror/state";
+import { indentWithTab, toggleTabFocusMode } from "@codemirror/commands";
+import { indentUnit } from "@codemirror/language";
+import { Compartment, EditorState } from "@codemirror/state";
 import {
   EditorView,
   highlightActiveLine,
   highlightActiveLineGutter,
+  keymap,
   lineNumbers,
   scrollPastEnd,
 } from "@codemirror/view";
-import { useEffect, useRef, useState } from "react";
-import { yCollab } from "y-codemirror.next";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { yCollab, ySyncAnnotation } from "y-codemirror.next";
 import * as Y from "yjs";
 import { uploadImage } from "../../lib/api.ts";
 import { cn } from "../../lib/cn.ts";
 import type { CollabAwareness } from "../../lib/collaboration.ts";
+import {
+  indentTabSize,
+  indentUnitText,
+  readIndentUnit,
+  readTabKeyMode,
+} from "../../lib/editor-tab.ts";
 import { readEditorScrollPadPx } from "../../lib/visual-viewport.ts";
+import { wikilinkCompletion } from "../../lib/wikilink-complete.ts";
 import "../../styles/cm-highlight.css";
 import { ContextMenu } from "../notes/ContextMenu.tsx";
 import { FileInput } from "../ui/FileInput.tsx";
@@ -29,6 +39,8 @@ type Props = {
   lineNumbers?: boolean;
   scrollRatio?: number;
   onScrollRatio?: (ratio: number) => void;
+  /** 1-based source line to scroll into view (e.g. from search results). */
+  focusLine?: number;
 };
 
 const IMAGE_TYPES = new Set([
@@ -74,6 +86,9 @@ function dataTransferHasImage(data: DataTransfer | null): boolean {
 }
 
 function insertMarkdownImage(view: EditorView, yText: Y.Text, url: string) {
+  if (view.state.readOnly) {
+    return;
+  }
   const markdown = `![](${url})`;
   const pos = view.state.selection.main.head;
   yText.insert(pos, markdown);
@@ -86,21 +101,26 @@ function insertMarkdownImage(view: EditorView, yText: Y.Text, url: string) {
 function imageUploadHandlers(
   noteId: string,
   yText: Y.Text,
-  readOnly: boolean,
+  isReadOnly: () => boolean,
   onContextMenu: (event: MouseEvent, view: EditorView) => void,
 ) {
   async function handleImageFile(view: EditorView, file: File) {
+    if (isReadOnly()) {
+      return;
+    }
     const result = await uploadImage(noteId, file);
     if (!result.ok) {
       console.error("image upload failed:", result.error);
       return;
     }
-    insertMarkdownImage(view, yText, result.data.url);
+    if (!isReadOnly() && view.dom.isConnected) {
+      insertMarkdownImage(view, yText, result.data.url);
+    }
   }
 
   return EditorView.domEventHandlers({
     contextmenu(event, view) {
-      if (readOnly) {
+      if (isReadOnly()) {
         return false;
       }
       event.preventDefault();
@@ -112,7 +132,7 @@ function imageUploadHandlers(
       return true;
     },
     dragover(event) {
-      if (readOnly) {
+      if (isReadOnly()) {
         return false;
       }
       if (!dataTransferHasImage(event.dataTransfer)) {
@@ -122,7 +142,7 @@ function imageUploadHandlers(
       return true;
     },
     drop(event, view) {
-      if (readOnly) {
+      if (isReadOnly()) {
         return false;
       }
       const file = imageFileFromDataTransfer(event.dataTransfer);
@@ -135,7 +155,7 @@ function imageUploadHandlers(
       return true;
     },
     paste(event, view) {
-      if (readOnly) {
+      if (isReadOnly()) {
         return false;
       }
       const file = imageFileFromClipboard(event.clipboardData);
@@ -163,6 +183,24 @@ function applyScrollRatio(el: HTMLElement, ratio: number) {
   el.scrollTop = max * ratio;
 }
 
+function editingExtensions(readOnly: boolean) {
+  return [EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)];
+}
+
+// Tab = indent while focused. CodeMirror's built-in hatch applies: Escape
+// grants Tab back to the browser for ~2s, and Ctrl-M toggles focus mode.
+function tabKeyExtensions() {
+  if (readTabKeyMode() === "focus") {
+    return [];
+  }
+  const unit = readIndentUnit();
+  return [
+    EditorState.tabSize.of(indentTabSize(unit)),
+    indentUnit.of(indentUnitText(unit)),
+    keymap.of([indentWithTab, { key: "Ctrl-m", run: toggleTabFocusMode }]),
+  ];
+}
+
 export function MarkdownEditor({
   noteId,
   yText,
@@ -171,6 +209,7 @@ export function MarkdownEditor({
   lineNumbers: showLineNumbers = false,
   scrollRatio,
   onScrollRatio,
+  focusLine,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -179,6 +218,8 @@ export function MarkdownEditor({
     (event: MouseEvent, view: EditorView) => void
   >(() => undefined);
   const onScrollRatioRef = useRef(onScrollRatio);
+  const readOnlyRef = useRef(readOnly);
+  const editing = useRef(new Compartment());
   const applyingScroll = useRef(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
@@ -186,6 +227,7 @@ export function MarkdownEditor({
     setMenu({ x: event.clientX, y: event.clientY });
   };
   onScrollRatioRef.current = onScrollRatio;
+  readOnlyRef.current = readOnly;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -193,12 +235,20 @@ export function MarkdownEditor({
       return;
     }
 
-    const undoManager = readOnly ? false : new Y.UndoManager(yText);
+    const undoManager = new Y.UndoManager(yText);
+    // y-codemirror's undo commands mutate Y.Text before a CM transaction, so
+    // guard the manager as well as local CodeMirror document transactions.
+    const undo = undoManager.undo.bind(undoManager);
+    const redo = undoManager.redo.bind(undoManager);
+    undoManager.undo = () => (readOnlyRef.current ? null : undo());
+    undoManager.redo = () => (readOnlyRef.current ? null : redo());
 
     const state = EditorState.create({
       doc: yText.toString(),
       extensions: [
+        ...tabKeyExtensions(),
         markdownEditorLanguage,
+        wikilinkCompletion(),
         ...markdownEditorHighlight,
         ...(showLineNumbers
           ? [lineNumbers(), highlightActiveLineGutter()]
@@ -230,10 +280,23 @@ export function MarkdownEditor({
           },
         }),
         yCollab(yText, awareness, { undoManager }),
-        EditorView.editable.of(!readOnly),
-        imageUploadHandlers(noteId, yText, readOnly, (event, view) => {
-          onContextMenuRef.current(event, view);
-        }),
+        EditorView.contentAttributes.of({ tabindex: "0" }),
+        editing.current.of(editingExtensions(readOnlyRef.current)),
+        EditorState.transactionFilter.of((transaction) =>
+          readOnlyRef.current &&
+          transaction.docChanged &&
+          !transaction.annotation(ySyncAnnotation)
+            ? []
+            : transaction,
+        ),
+        imageUploadHandlers(
+          noteId,
+          yText,
+          () => readOnlyRef.current,
+          (event, view) => {
+            onContextMenuRef.current(event, view);
+          },
+        ),
         EditorView.domEventHandlers({
           scroll(_event, view) {
             if (applyingScroll.current) {
@@ -251,9 +314,29 @@ export function MarkdownEditor({
 
     return () => {
       view.destroy();
+      undoManager.destroy();
       viewRef.current = null;
     };
-  }, [noteId, yText, awareness, readOnly, showLineNumbers]);
+  }, [noteId, yText, awareness, showLineNumbers]);
+
+  useLayoutEffect(() => {
+    viewRef.current?.dispatch({
+      effects: editing.current.reconfigure(editingExtensions(readOnly)),
+    });
+  }, [readOnly]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || focusLine == null) {
+      return;
+    }
+    const target = Math.min(Math.max(1, focusLine), view.state.doc.lines);
+    const pos = view.state.doc.line(target).from;
+    view.dispatch({
+      effects: EditorView.scrollIntoView(pos, { y: "center" }),
+      selection: { anchor: pos, head: pos },
+    });
+  }, [focusLine]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -273,7 +356,7 @@ export function MarkdownEditor({
 
   async function uploadAtCursor(file: File) {
     const view = viewRef.current;
-    if (!view) {
+    if (!view || readOnlyRef.current) {
       return;
     }
     const result = await uploadImage(noteId, file);
@@ -281,7 +364,9 @@ export function MarkdownEditor({
       console.error("image upload failed:", result.error);
       return;
     }
-    insertMarkdownImage(view, yText, result.data.url);
+    if (!readOnlyRef.current && viewRef.current === view) {
+      insertMarkdownImage(view, yText, result.data.url);
+    }
   }
 
   return (
@@ -302,6 +387,7 @@ export function MarkdownEditor({
       <FileInput
         accept={[...IMAGE_TYPES].join(",")}
         aria-label="画像をアップロード"
+        disabled={readOnly}
         onChange={(event) => {
           const file = event.target.files?.[0];
           event.target.value = "";

@@ -1,5 +1,10 @@
-import type { Note, SessionUser } from "@miyulabmd/shared";
+import {
+  EDIT_LOCK_WS_CLOSE_CODE,
+  type Note,
+  type SessionUser,
+} from "@miyulabmd/shared";
 import type { MutableRefObject } from "react";
+import * as Y from "yjs";
 import type { AccessDraft } from "../components/notes/AccessPanel.tsx";
 import {
   draftFromNote,
@@ -119,15 +124,23 @@ export function subscribeArticleSources(
     setArticleSources([]);
     return undefined;
   }
-  let cancelled = false;
-  void fetchArticleSources().then((result) => {
-    if (cancelled || !result.ok) {
-      return;
-    }
-    setArticleSources(result.data);
-  });
+  const controller = new AbortController();
+  void fetchArticleSources({
+    signal: controller.signal,
+    viewerId: user.id,
+  }).then(
+    (result) => {
+      if (controller.signal.aborted || !result.ok) {
+        return;
+      }
+      setArticleSources(result.data);
+    },
+    () => {
+      // Aborted or failed source discovery is non-fatal to the editor.
+    },
+  );
   return () => {
-    cancelled = true;
+    controller.abort();
   };
 }
 
@@ -136,6 +149,7 @@ export function teardownCollab(
   sessionRef: MutableRefObject<YjsSession | null>,
   setCollab: (session: YjsSession | null) => void,
   setCollabReady: (ready: boolean) => void,
+  setOfflineWritable?: (writable: boolean) => void,
 ) {
   unbindRef.current?.();
   unbindRef.current = null;
@@ -143,6 +157,7 @@ export function teardownCollab(
   sessionRef.current = null;
   setCollab(null);
   setCollabReady(false);
+  setOfflineWritable?.(false);
 }
 
 function onCollabSynced(
@@ -163,6 +178,8 @@ function onCollabSynced(
 
 export function bindEditorCollab(input: {
   noteId: string | undefined;
+  /** 編集キャッシュ（y-indexeddb）の資格判定に使う最新のノートメタデータ。 */
+  note: Note | null;
   hydrated: boolean;
   userLoading: boolean;
   viewMode: EditorMode;
@@ -172,30 +189,101 @@ export function bindEditorCollab(input: {
   setCollab: (session: YjsSession | null) => void;
   setCollabReady: (ready: boolean) => void;
   setMarkdown: (markdown: string) => void;
+  setCollabWritable: (writable: boolean) => void;
+  /** 編集キャッシュ名空間のユーザー ID（オフライン表示では cacheViewerId）。 */
+  editCacheUserId?: string | null;
+  /** 表示キャッシュ由来のオフライン編集。編集キャッシュ復元完了を readiness に使う。 */
+  offlineEdit?: boolean;
+  /**
+   * preview 中でもセッションを先行作成し、同期済み Y.Doc を編集キャッシュに
+   * 乗せる。オフライン編集資格のあるノートを開くだけでオフライン編集可能に
+   * なる温め処理。preview でもコネクションを維持する。
+   */
+  warmup?: boolean;
+  /** オフライン編集でローカル Y.Doc への書き込みが可能になったことを通知する。 */
+  setOfflineWritable?: (writable: boolean) => void;
+  /** Server revoked edit access mid-session (edit lock engaged). */
+  onEditLocked?: () => void;
 }) {
   if (!(input.noteId && input.hydrated) || input.userLoading) {
     return;
   }
-  if (input.viewMode === "preview") {
+  // preview ではセッションを持たない。ただし warmup 指定時は preview の
+  // まま接続だけ張り、初回 sync で編集キャッシュへ永続化させる。
+  if (input.viewMode === "preview" && input.warmup !== true) {
+    teardownCollab(
+      input.unbindRef,
+      input.sessionRef,
+      input.setCollab,
+      input.setCollabReady,
+      input.setOfflineWritable,
+    );
     return;
   }
   if (input.sessionRef.current) {
     return;
   }
 
-  const session = createYjsSession(input.noteId, input.user);
+  const session = createYjsSession(input.noteId, input.user, {
+    note: input.note,
+    userId: input.editCacheUserId ?? input.user?.id ?? null,
+  });
   input.sessionRef.current = session;
   input.setCollab(session);
   input.setCollabReady(false);
 
   const onSynced = (synced: boolean) => {
+    input.setCollabWritable(session.provider.wsconnected && synced);
     onCollabSynced(synced, session, input.setCollabReady, input.setMarkdown);
   };
+  const onStatus = () => {
+    input.setCollabWritable(editorSessionWritable(session));
+  };
+  const onClosed = (event: { code: number; reason: string }) => {
+    // A 4400-4499 close is terminal: the server will not accept writes on a
+    // reconnection either, so flip the note into its locked read-only state.
+    if (event.code === EDIT_LOCK_WS_CLOSE_CODE) {
+      input.onEditLocked?.();
+    }
+  };
 
+  session.provider.on("sync", onSynced);
+  session.provider.on("status", onStatus);
+  session.provider.on("closed", onClosed);
   if (session.provider.synced) {
     onSynced(true);
-  } else {
-    session.provider.on("sync", onSynced);
+  }
+
+  // オフライン編集では WebSocket 同期を待たず、編集キャッシュ（y-indexeddb）
+  // の復元完了をもってローカル Y.Doc への書き込みを許可する。
+  const editCachePersistence = session.editCache?.persistence;
+  if (input.offlineEdit && editCachePersistence) {
+    void editCachePersistence.whenSynced.then(
+      () => {
+        if (input.sessionRef.current !== session) {
+          return;
+        }
+        const next = session.yMarkdown.toString();
+        // 復元 doc に一切の update が永続化されていない（state vector が空）
+        // のに表示スナップショットに本文があるときは、同期済みマーカーだけ
+        // 残って編集キャッシュが失われた可能性が高い。空 doc への編集は後の
+        // マージで本文を二重化・置換しうるため書き込みを開放せず、オンライン
+        // 再同期を待つ。本文を空にした履歴がある doc は state vector が空で
+        // ないためこのガードにはかからない。
+        if (
+          Y.decodeStateVector(Y.encodeStateVector(session.doc)).size === 0 &&
+          (input.note?.markdown.length ?? 0) > 0
+        ) {
+          return;
+        }
+        input.setCollabReady(true);
+        if (next.length > 0) {
+          input.setMarkdown(next);
+        }
+        input.setOfflineWritable?.(true);
+      },
+      () => undefined,
+    );
   }
 
   const onMarkdownChange = () => {
@@ -204,8 +292,14 @@ export function bindEditorCollab(input: {
   session.yMarkdown.observe(onMarkdownChange);
   input.unbindRef.current = () => {
     session.provider.off("sync", onSynced);
+    session.provider.off("status", onStatus);
+    session.provider.off("closed", onClosed);
     session.yMarkdown.unobserve(onMarkdownChange);
   };
+}
+
+export function editorSessionWritable(session: YjsSession | null): boolean {
+  return !session || (session.provider.wsconnected && session.provider.synced);
 }
 
 export function syncCollabUser(
@@ -219,22 +313,40 @@ export function syncCollabUser(
   applyAwarenessUser(collab.awareness, user);
 }
 
+type MutationSetters = {
+  // Dispatch permission is transient; completion ownership survives a pause.
+  canStart: () => boolean;
+  isCurrent: () => boolean;
+  setSaveError: (error: string | null) => void;
+  setNote: (note: Note) => void;
+};
+
 export async function persistEditorAccess(
   note: Note | null,
   next: AccessDraft,
-  setters: {
-    setAccessDraft: (draft: AccessDraft) => void;
-    setSaveError: (error: string | null) => void;
-    setNote: (note: Note) => void;
-  },
+  setters: MutationSetters & { setAccessDraft: (draft: AccessDraft) => void },
 ) {
-  if (!note) {
+  if (!(note && setters.isCurrent() && setters.canStart())) {
     return;
   }
   setters.setAccessDraft(next);
   setters.setSaveError(null);
 
-  const result = await updateNote(note.id, noteAccessPatch(next));
+  let result: Awaited<ReturnType<typeof updateNote>>;
+  try {
+    result = await updateNote(note.id, noteAccessPatch(next));
+  } catch (error) {
+    if (setters.isCurrent()) {
+      setters.setAccessDraft(draftFromNote(note));
+      setters.setSaveError(
+        error instanceof Error ? error.message : "保存できませんでした。",
+      );
+    }
+    return;
+  }
+  if (!setters.isCurrent()) {
+    return;
+  }
   if (!result.ok) {
     setters.setSaveError(result.error);
     setters.setAccessDraft(draftFromNote(note));
@@ -249,14 +361,12 @@ export async function persistEditorFolder(
   note: Note | null,
   folder: string,
   normalizeFolder: (value: string) => string,
-  setters: {
+  setters: MutationSetters & {
     setFolder: (folder: string) => void;
-    setSaveError: (error: string | null) => void;
-    setNote: (note: Note) => void;
     setAccessDraft: (draft: AccessDraft) => void;
   },
 ) {
-  if (!note) {
+  if (!(note && setters.isCurrent() && setters.canStart())) {
     return;
   }
   const next = normalizeFolder(folder);
@@ -264,7 +374,21 @@ export async function persistEditorFolder(
     return;
   }
 
-  const result = await updateNote(note.id, { folder: next });
+  let result: Awaited<ReturnType<typeof updateNote>>;
+  try {
+    result = await updateNote(note.id, { folder: next });
+  } catch (error) {
+    if (setters.isCurrent()) {
+      setters.setFolder(note.folder);
+      setters.setSaveError(
+        error instanceof Error ? error.message : "保存できませんでした。",
+      );
+    }
+    return;
+  }
+  if (!setters.isCurrent()) {
+    return;
+  }
   if (!result.ok) {
     setters.setFolder(note.folder);
     setters.setSaveError(result.error);

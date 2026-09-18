@@ -47,3 +47,24 @@ test("renderMarkdownHtml infers highlight language from a filename fence", () =>
   assert.match(html, />hoge\.ts</);
   assert.match(html, /language-typescript/);
 });
+
+test("renderMarkdownHtml embeds a standalone YouTube URL", () => {
+  const html = renderMarkdownHtml(
+    "https://www.youtube.com/watch?v=jNQXAC9IVRw\n",
+  );
+  assert.match(html, /embed-youtube/);
+  assert.match(html, /youtube-nocookie\.com\/embed\/jNQXAC9IVRw/);
+});
+
+test("renderMarkdownHtml keeps a YouTube start time on the embed", () => {
+  const html = renderMarkdownHtml(
+    "https://www.youtube.com/watch?v=jNQXAC9IVRw&t=12s\n",
+  );
+  assert.match(html, /embed\/jNQXAC9IVRw\?start=12/);
+});
+
+test("renderMarkdownHtml does not embed an inline YouTube URL", () => {
+  const html = renderMarkdownHtml("see https://youtu.be/yI81_De3Hjk\n");
+  assert.doesNotMatch(html, /embed-youtube/);
+  assert.match(html, /youtu\.be\/yI81_De3Hjk/);
+});

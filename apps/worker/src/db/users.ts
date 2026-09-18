@@ -88,6 +88,24 @@ export async function findUserByEmail(
   };
 }
 
+export async function findUserById(
+  env: Env,
+  id: string,
+): Promise<DbUser | null> {
+  const row = await db(env)
+    .prepare("SELECT id, email, display_name FROM users WHERE id = ?")
+    .bind(id)
+    .first<UserRow>();
+  if (!row) {
+    return null;
+  }
+  return {
+    displayName: row.display_name,
+    email: row.email,
+    id: row.id,
+  };
+}
+
 export async function updateDisplayName(
   env: Env,
   userId: string,

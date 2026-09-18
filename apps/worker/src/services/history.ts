@@ -26,6 +26,8 @@ export type HistoryRevisionCandidate = {
   r2Key: string;
   createdAt: number;
   byteSize: number;
+  /** Pinned revisions (e.g. promote snapshots) are never dropped. */
+  pinned?: boolean;
 };
 
 export type HistoryEventCandidate = {
@@ -203,6 +205,9 @@ export function planRevisionDrops(
   let kept = 0;
   let bytes = 0;
   for (const revision of newestFirst(revisions)) {
+    if (revision.pinned) {
+      continue;
+    }
     if (
       kept >= revisionKeep ||
       (kept > 0 && bytes + revision.byteSize > bytesKeep)
@@ -238,7 +243,7 @@ export async function compactNoteHistory(
 ): Promise<void> {
   const revisionRows = await db(env)
     .prepare(
-      `SELECT id, r2_key, created_at, byte_size
+      `SELECT id, r2_key, created_at, byte_size, pinned
        FROM note_revisions
        WHERE note_id = ?
        ORDER BY created_at DESC, id DESC`,
@@ -249,11 +254,13 @@ export async function compactNoteHistory(
       r2_key: string;
       created_at: number;
       byte_size: number;
+      pinned: number;
     }>();
   const revisions = (revisionRows.results ?? []).map((row) => ({
     byteSize: row.byte_size,
     createdAt: row.created_at,
     id: row.id,
+    pinned: row.pinned === 1,
     r2Key: row.r2_key,
   }));
   const dropRevisionIds = new Set(planRevisionDrops(revisions, limits));

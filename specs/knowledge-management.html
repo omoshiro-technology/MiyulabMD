@@ -1,0 +1,1621 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ナレッジ管理機能 設計仕様 — MiyulabMD</title>
+<style>
+  :root {
+    --ink: #1a1d24;
+    --muted: #5c6472;
+    --faint: #8a919e;
+    --line: #e3e6ec;
+    --line-soft: #eef0f4;
+    --bg: #f7f8fa;
+    --card: #ffffff;
+    --accent: #4f46e5;
+    --accent-soft: #eef0ff;
+    --accent-line: #c7cdfb;
+    --ok: #0f7b4d;
+    --ok-soft: #e6f5ee;
+    --warn: #a15c07;
+    --warn-soft: #fdf3e3;
+    --err: #b3261e;
+    --err-soft: #fdeceb;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP",
+      "Yu Gothic", Meiryo, system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.75;
+    font-size: 15px;
+  }
+  code {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    background: #eef0f4;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0.1em 0.35em;
+    white-space: nowrap;
+  }
+  pre code { white-space: pre; }
+  .layout {
+    display: grid;
+    grid-template-columns: 250px minmax(0, 920px);
+    gap: 2.5rem;
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem 6rem;
+  }
+  /* ---- TOC ---- */
+  .toc {
+    position: sticky;
+    top: 2rem;
+    align-self: start;
+    font-size: 0.82rem;
+    line-height: 1.6;
+  }
+  .toc h2 {
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.6rem;
+  }
+  .toc ol { margin: 0; padding-left: 1.1rem; }
+  .toc li { margin: 0.3rem 0; }
+  .toc a { color: var(--muted); text-decoration: none; }
+  .toc a:hover { color: var(--accent); }
+  /* ---- header ---- */
+  .doc-head {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 1.6rem;
+    margin-bottom: 2rem;
+  }
+  .doc-head .kicker {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .doc-head h1 {
+    font-size: 1.9rem;
+    line-height: 1.35;
+    margin: 0.4rem 0 0.6rem;
+  }
+  .doc-head .meta {
+    color: var(--muted);
+    font-size: 0.85rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.4rem;
+  }
+  /* ---- sections ---- */
+  section.block { margin-bottom: 3.4rem; }
+  h2.sec {
+    font-size: 1.4rem;
+    margin: 0 0 0.4rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--ink);
+  }
+  h2.sec .num { color: var(--accent); margin-right: 0.5rem; }
+  h3 {
+    font-size: 1.08rem;
+    margin: 2rem 0 0.5rem;
+    padding-left: 0.6rem;
+    border-left: 4px solid var(--accent);
+  }
+  h4 { font-size: 0.95rem; margin: 1.4rem 0 0.3rem; color: var(--muted); }
+  p { margin: 0.6rem 0; }
+  ul, ol { margin: 0.5rem 0; padding-left: 1.5rem; }
+  li { margin: 0.25rem 0; }
+  /* ---- cards / callouts ---- */
+  .callout {
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--accent);
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 0.8rem 1.1rem;
+    margin: 1rem 0;
+    font-size: 0.92rem;
+  }
+  .callout.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+  .callout.ok { border-left-color: var(--ok); background: var(--ok-soft); }
+  .callout.err { border-left-color: var(--err); background: var(--err-soft); }
+  .callout .tag {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    padding: 0.05rem 0.5rem;
+    border-radius: 999px;
+    margin-right: 0.5rem;
+    vertical-align: 1px;
+  }
+  .callout .tag.info { background: var(--accent-soft); color: var(--accent); }
+  .callout .tag.warn { background: #f4e0bb; color: var(--warn); }
+  .callout .tag.ok { background: #c6e8d7; color: var(--ok); }
+  .callout .tag.err { background: #f5c6c3; color: var(--err); }
+  /* ---- tables ---- */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: 0.86rem;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.55rem 0.8rem;
+    border-bottom: 1px solid var(--line-soft);
+    vertical-align: top;
+  }
+  th {
+    background: #f0f2f6;
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  tr:last-child td { border-bottom: 0; }
+  td code { white-space: normal; word-break: break-all; }
+  .pill {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0.08rem 0.55rem;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .pill.always { background: var(--ok-soft); color: var(--ok); border: 1px solid #bfe3d2; }
+  .pill.cond { background: var(--warn-soft); color: var(--warn); border: 1px solid #ecd6ab; }
+  .pill.menu { background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-line); }
+  .pill.new { background: #f1e8fd; color: #7c3aed; border: 1px solid #dcc8f8; }
+  .pill.off { background: #eceff3; color: var(--muted); border: 1px solid var(--line); }
+  /* ---- wireframes ---- */
+  .wf {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--card);
+    padding: 1rem;
+    margin: 1rem 0;
+  }
+  .wf-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--faint);
+    letter-spacing: 0.05em;
+    margin-bottom: 0.7rem;
+  }
+  .hdr {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fbfcfe;
+    padding: 0.45rem 0.7rem;
+    font-size: 0.78rem;
+    overflow-x: auto;
+  }
+  .hdr .brand { font-weight: 800; white-space: nowrap; }
+  .hdr .grow { flex: 1; }
+  .hb {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border: 1px solid var(--line);
+    background: #fff;
+    border-radius: 6px;
+    padding: 0.22rem 0.55rem;
+    white-space: nowrap;
+    color: var(--ink);
+  }
+  .hb.accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .hb.ghost { border-style: dashed; color: var(--muted); }
+  .hb.seg { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); font-weight: 700; }
+  .hb.icon-only { padding: 0.22rem 0.4rem; }
+  .hb .ava {
+    width: 1.1rem; height: 1.1rem; border-radius: 50%;
+    background: linear-gradient(135deg, #818cf8, #4f46e5);
+    display: inline-block;
+  }
+  .hb .ava.b { background: linear-gradient(135deg, #34d399, #059669); }
+  .hb .ava.c { background: linear-gradient(135deg, #fbbf24, #d97706); }
+  .hb.mark { outline: 2px solid var(--err); outline-offset: 1px; position: relative; }
+  .hb.mark::after {
+    content: attr(data-note);
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.62rem;
+    color: var(--err);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .wf-cap { font-size: 0.78rem; color: var(--muted); margin-top: 0.55rem; }
+  .wf-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+  .wf-row > * { flex: 1; min-width: 220px; }
+  /* settings mock */
+  .settings-mock { display: flex; gap: 1rem; font-size: 0.8rem; }
+  .settings-mock .side {
+    width: 11rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.6rem;
+    background: #fbfcfe;
+  }
+  .settings-mock .side .grp {
+    font-size: 0.65rem; color: var(--faint); font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.06em; margin: 0.5rem 0 0.15rem;
+  }
+  .settings-mock .side .it { padding: 0.15rem 0.45rem; border-radius: 5px; color: var(--muted); }
+  .settings-mock .side .it.on {
+    background: var(--accent-soft); color: var(--accent);
+    font-weight: 700; border-left: 3px solid var(--accent);
+  }
+  .settings-mock .main {
+    flex: 1; border: 1px solid var(--line); border-radius: 8px;
+    padding: 0.8rem; background: #fff;
+  }
+  .settings-mock .feat {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 0.6rem; padding: 0.55rem 0.2rem; border-bottom: 1px solid var(--line-soft);
+  }
+  .settings-mock .feat:last-child { border-bottom: 0; }
+  .settings-mock .feat .nm { font-weight: 700; }
+  .settings-mock .feat .ds { color: var(--muted); font-size: 0.72rem; }
+  .tog {
+    width: 2.2rem; height: 1.2rem; border-radius: 999px;
+    background: var(--accent); position: relative; flex-shrink: 0;
+  }
+  .tog::after {
+    content: ""; position: absolute; top: 0.15rem; right: 0.15rem;
+    width: 0.9rem; height: 0.9rem; border-radius: 50%; background: #fff;
+  }
+  .tog.off { background: #c9ced8; }
+  .tog.off::after { right: auto; left: 0.15rem; }
+  /* modal mock */
+  .modal-mock {
+    max-width: 26rem; margin: 0 auto;
+    border: 1px solid var(--line); border-radius: 12px;
+    background: #fff; box-shadow: 0 12px 40px rgba(20, 25, 60, 0.14);
+    font-size: 0.8rem; overflow: hidden;
+  }
+  .modal-mock .mh {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0.7rem 1rem; border-bottom: 1px solid var(--line); font-weight: 700;
+  }
+  .modal-mock .mb { padding: 0.8rem 1rem; }
+  .modal-mock .mf {
+    display: flex; justify-content: flex-end; gap: 0.5rem;
+    padding: 0.7rem 1rem; border-top: 1px solid var(--line); background: #fafbfd;
+  }
+  .conflict-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    border: 1px solid var(--warn); background: var(--warn-soft);
+    border-radius: 8px; padding: 0.45rem 0.6rem; margin: 0.4rem 0;
+  }
+  .conflict-row .fname { font-family: var(--mono); font-weight: 700; }
+  .conflict-row input {
+    flex: 1; min-width: 5rem; border: 1px solid var(--line);
+    border-radius: 5px; padding: 0.25rem 0.45rem; font-size: 0.78rem;
+  }
+  .ok-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    border: 1px solid #bfe3d2; background: var(--ok-soft);
+    border-radius: 8px; padding: 0.45rem 0.6rem; margin: 0.4rem 0;
+    color: var(--ok); font-weight: 600;
+  }
+  /* state diagram */
+  .flow {
+    display: flex; flex-wrap: wrap; align-items: stretch; gap: 0;
+    margin: 1rem 0; font-size: 0.78rem;
+  }
+  .st {
+    border: 1.5px solid var(--line); border-radius: 8px;
+    background: #fff; padding: 0.45rem 0.7rem;
+    display: flex; flex-direction: column; justify-content: center;
+    min-width: 8.5rem; max-width: 12rem;
+  }
+  .st .t { font-weight: 700; }
+  .st .d { color: var(--muted); font-size: 0.68rem; line-height: 1.4; }
+  .st.start { border-color: var(--muted); background: #f0f2f6; }
+  .st.action { border-color: var(--accent); background: var(--accent-soft); }
+  .st.decide { border-color: var(--warn); background: var(--warn-soft); }
+  .st.done { border-color: var(--ok); background: var(--ok-soft); }
+  .arrow {
+    align-self: center; padding: 0 0.4rem; color: var(--faint);
+    font-weight: 700; font-size: 1rem;
+  }
+  .arrow .sub { display: block; font-size: 0.62rem; font-weight: 600; color: var(--muted); text-align: center; }
+  /* two-col compare */
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+  .compare .col {
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--card); padding: 0.9rem 1rem; font-size: 0.85rem;
+  }
+  .compare .col h5 { margin: 0 0 0.4rem; font-size: 0.85rem; }
+  .compare .col.bad h5 { color: var(--err); }
+  .compare .col.good h5 { color: var(--ok); }
+  .compare .col ul { padding-left: 1.1rem; margin: 0.3rem 0; }
+  .phase {
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: var(--card); margin: 0.8rem 0; overflow: hidden;
+  }
+  .phase .ph-h {
+    display: flex; align-items: baseline; gap: 0.7rem;
+    padding: 0.6rem 1rem; background: #f0f2f6;
+    border-bottom: 1px solid var(--line); font-weight: 700; font-size: 0.92rem;
+  }
+  .phase .ph-h .pnum {
+    background: var(--ink); color: #fff; border-radius: 5px;
+    font-size: 0.72rem; padding: 0.05rem 0.5rem;
+  }
+  .phase .ph-b { padding: 0.6rem 1rem 0.8rem; font-size: 0.86rem; }
+  .kbd {
+    font-family: var(--mono); font-size: 0.72rem;
+    border: 1px solid var(--line); border-bottom-width: 2px;
+    border-radius: 4px; padding: 0.05rem 0.35rem; background: #fff;
+  }
+  @media (max-width: 960px) {
+    .layout { grid-template-columns: 1fr; }
+    .toc { position: static; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 0.8rem 1rem; }
+    .compare { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- ================= TOC ================= -->
+  <nav class="toc" aria-label="目次">
+    <h2>目次</h2>
+    <ol>
+      <li><a href="#s1">現状の整理</a>
+        <ol>
+          <li><a href="#s1-1">編集画面ヘッダーの解剖</a></li>
+          <li><a href="#s1-2">ナレッジ管理機能の棚卸し</a></li>
+          <li><a href="#s1-3">問題点</a></li>
+        </ol>
+      </li>
+      <li><a href="#s2">設計方針</a>
+        <ol>
+          <li><a href="#s2-1">opt-in 原則</a></li>
+          <li><a href="#s2-2">設定画面「ナレッジ管理」</a></li>
+          <li><a href="#s2-3">opt-in 状態の保存先</a></li>
+          <li><a href="#s2-4">PARA 有効化フロー</a></li>
+          <li><a href="#s2-5">複数 PARA 運用（スペース）</a></li>
+          <li><a href="#s2-6">メダリオン層のフォルダ割当化</a></li>
+          <li><a href="#s2-7">機能レジストリによる拡張性</a></li>
+        </ol>
+      </li>
+      <li><a href="#s3">ヘッダー再設計</a>
+        <ol>
+          <li><a href="#s3-1">機能の分類</a></li>
+          <li><a href="#s3-2">レスポンシブルール</a></li>
+          <li><a href="#s3-3">opt-in 連動</a></li>
+        </ol>
+      </li>
+      <li><a href="#s4">UI モック / ワイヤーフレーム</a></li>
+      <li><a href="#s5">実装計画</a></li>
+      <li><a href="#s6">付録: コード参照表</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="doc-head">
+      <div class="kicker">Design Spec · MiyulabMD</div>
+      <h1>ナレッジ管理機能（PARA 等）の opt-in 化と<br>エディタヘッダーの再設計</h1>
+      <div class="meta">
+        <span>対象: <code>apps/web</code> / <code>apps/worker</code> / <code>packages/shared</code></span>
+        <span>ステータス: 設計提案（ドラフト）</span>
+        <span>関連: HANDOFF.md #108〜#115（フォルダ階層・wiki-link・スキーム・層・検索DSL）</span>
+      </div>
+    </header>
+
+    <!-- ================= 1. 現状 ================= -->
+    <section class="block" id="s1">
+      <h2 class="sec"><span class="num">1.</span>現状の整理</h2>
+
+      <h3 id="s1-1">1.1 編集画面ヘッダーの解剖</h3>
+      <p>
+        グローバルヘッダーは <code>apps/web/src/components/layout/AppHeader.tsx</code> が 3 カラムの grid
+        （<code>grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]</code>）で描画し、各ページが
+        <code>AppShellContext.setHeader({ actions, end, folder })</code> 経由で中央・右端スロットに要素を流し込む
+        （<code>apps/web/src/components/layout/AppShell.tsx:318-325</code>）。
+        編集画面 <code>/n/:id</code> では <code>EditorPage.tsx</code> の
+        <code>bindEditorHeader</code>（同:892-963）が以下を詰め込んでいる。
+      </p>
+
+      <div class="wf">
+        <div class="wf-title">現在のヘッダー（編集画面 / デスクトップ幅）</div>
+        <div class="hdr">
+          <span class="brand">MiyulabMD</span>
+          <span class="grow"></span>
+          <span class="hb seg">👁 View | ✏️ Edit ▾</span>
+          <span class="grow"></span>
+          <span class="hb icon-only">🔍</span>
+          <span class="hb ghost">⟳ サイトを更新</span>
+          <span class="hb"><span class="ava"></span><span class="ava b" style="margin-left:-0.5rem"></span><span class="ava c" style="margin-left:-0.5rem"></span></span>
+          <span class="hb">🏅 bronze ▾</span>
+          <span class="hb">📁 フォルダ ▾</span>
+          <span class="hb">🔗 リンク</span>
+          <span class="hb">🕘 履歴</span>
+          <span class="hb accent">⇪ 共有</span>
+          <span class="hb"><span class="ava"></span></span>
+        </div>
+        <div class="wf-cap">
+          中央: 表示モード切替のみ。右側 nav には最大 <strong>9 要素</strong>（検索 / サイト更新 / presence / 層 / フォルダ / リンク / 履歴 / 共有 / アカウント）が一列に並ぶ。
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr><th>位置</th><th>要素</th><th>実体（ファイル）</th><th>振る舞い</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>左 col-1</td>
+            <td>ブランドリンク「MiyulabMD」</td>
+            <td><code>AppHeader.tsx:66-72</code></td>
+            <td><code>/</code> へのリンク。常時表示</td>
+          </tr>
+          <tr>
+            <td>中央 col-2<br><code>actions</code></td>
+            <td>表示モード切替（View / Edit▾→分割・テキスト・リッチ）</td>
+            <td><code>components/editor/EditorModeSwitch.tsx</code>、<code>EditorPage.tsx:918-927</code></td>
+            <td>セグメントスイッチ。編集権限が無いと null。ラベルは 900px 未満で非表示</td>
+          </tr>
+          <tr>
+            <td>右 nav</td>
+            <td>🔍 検索（Ctrl+K）</td>
+            <td><code>AppHeader.tsx:85-94</code>、<code>components/search/SearchPalette.tsx</code></td>
+            <td>アイコンボタン。常時表示（アイコンのみ）</td>
+          </tr>
+          <tr>
+            <td>右 nav</td>
+            <td>⟳ サイトを更新</td>
+            <td><code>components/layout/SitePublishButton.tsx</code></td>
+            <td>現在フォルダが記事ソースに一致する時だけ出現する条件付きボタン</td>
+          </tr>
+          <tr>
+            <td>右 nav<br><code>end</code></td>
+            <td>共同編集者アバター</td>
+            <td><code>components/editor/PresenceBar.tsx</code></td>
+            <td>ピアがいる時のみ。640px 未満で非表示</td>
+          </tr>
+          <tr>
+            <td>右 nav <code>end</code></td>
+            <td>🏅 層メニュー（bronze/silver/gold・gold ロック解除・昇格/降格）</td>
+            <td><code>components/editor/LayerMenu.tsx</code>、<code>EditorPage.tsx:462</code></td>
+            <td>HeaderButton + MenuPanel ドロップダウン</td>
+          </tr>
+          <tr>
+            <td>右 nav <code>end</code></td>
+            <td>📁 フォルダ（パス入力・フォルダを開く）</td>
+            <td><code>components/editor/FolderPopover.tsx</code>、<code>EditorPage.tsx:463-469</code></td>
+            <td>HeaderButton + ポップオーバー。blur で保存</td>
+          </tr>
+          <tr>
+            <td>右 nav <code>end</code></td>
+            <td>🔗 リンク</td>
+            <td><code>EditorPage.tsx:470</code> → <code>components/editor/LinksPanel.tsx</code></td>
+            <td>右サイドパネル（outgoing / backlinks）を開く</td>
+          </tr>
+          <tr>
+            <td>右 nav <code>end</code></td>
+            <td>🕘 履歴</td>
+            <td><code>EditorPage.tsx:471</code> → <code>components/editor/HistoryPanel.tsx</code></td>
+            <td>履歴モーダルを開く</td>
+          </tr>
+          <tr>
+            <td>右 nav <code>end</code></td>
+            <td>⇪ 共有（accent）</td>
+            <td><code>EditorPage.tsx:472-477</code> → <code>components/notes/ShareModal.tsx</code></td>
+            <td>共有モーダルを開く。プライマリ CTA</td>
+          </tr>
+          <tr>
+            <td>右 nav</td>
+            <td>アカウントメニュー</td>
+            <td><code>components/layout/AccountMenu.tsx</code></td>
+            <td>テーマ / 設定 / ログアウト</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        なお <code>HeaderButton</code>（<code>components/ui/HeaderButton.tsx:26</code>）は
+        <code>max-[900px]:hidden</code> でラベルを消しアイコン化するため、900px 未満では「アイコン 9 連」になる。
+        意味が分からないアイコンが並ぶだけで、情報量の削減にはなっていない。
+      </p>
+
+      <h3 id="s1-2">1.2 既存のナレッジ管理機能の棚卸し</h3>
+      <p>
+        #108〜#115 のマージで、Obsidian 的なナレッジ機能の大半は<strong>既に実装済み</strong>で、
+        かつ<strong>全てデフォルト有効（always-on）</strong>になっている。
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>機能</th><th>実装</th><th>UI 露出</th><th>API / MCP</th><th>現状</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>wiki-link / backlinks</strong></td>
+            <td><code>lib/note-links.ts</code>（<code>useNoteLinks</code> / <code>wikiLinkMapFor</code>）、<code>lib/wikilink-complete.ts</code>（<code>[[</code> 補完）、パーサは <code>packages/markdown</code></td>
+            <td>エディタヘッダー「リンク」→ <code>LinksPanel.tsx</code>（右ペイン）、プレビュー内リンク解決</td>
+            <td><code>GET /api/notes/:id/links</code>、MCP: <code>list_note_links</code> / <code>list_backlinks</code> / <code>list_broken_links</code> / <code>resolve_wikilink</code></td>
+            <td><span class="pill always">常時 ON</span> <span class="pill cond">標準（トグル対象外）</span></td>
+          </tr>
+          <tr>
+            <td><strong>フォルダ階層ツリー</strong></td>
+            <td><code>components/notes/NoteTree.tsx</code>、<code>lib/folder-entries.ts</code>（遅延展開 reducer）</td>
+            <td>ホーム画面のドライブツリー（chevron 展開・ページング・DnD 移動）</td>
+            <td><code>GET /api/folders/:id/children</code>、MCP: <code>list_folder_entries</code></td>
+            <td><span class="pill always">常時 ON</span></td>
+          </tr>
+          <tr>
+            <td><strong>命名規則スキーム（JD / Zettelkasten）</strong></td>
+            <td><code>packages/shared/src/schemes.ts</code>（<code>NAMING_SCHEMES=["jd","zettel"]</code>）、<code>lib/scheme-sort.ts</code>、<code>components/notes/SchemeDialog.tsx</code></td>
+            <td>フォルダのコンテキストメニュー「命名規則…」（<code>pages/home-page.ts:437-441</code>）、<code>FolderCreateModal</code> の次番号ヒント</td>
+            <td><code>POST /api/folders/:id/scheme</code>、<code>GET /api/schemes/suggest|resolve</code>、MCP: <code>jd_*</code> / <code>scheme_*</code></td>
+            <td><span class="pill always">常時 ON</span></td>
+          </tr>
+          <tr>
+            <td><strong>メダリオン層（bronze→silver→gold + gold ロック）</strong><br><span style="color:var(--muted);font-size:0.72rem">→ §2.6 でフォルダ割当方式に再設計</span></td>
+            <td><code>packages/shared/src/layers.ts</code>、<code>components/editor/LayerMenu.tsx</code>（per-note: <code>notes.layer</code> + <code>gold_unlocked_until</code>）</td>
+            <td>エディタヘッダーの層ボタン + ドロップダウン、gold ロックバナー</td>
+            <td><code>POST /api/notes/:id/layer</code>、MCP: <code>set_note_layer</code> / <code>promote_note</code> / <code>demote_note</code> / <code>unlock_gold_for_edit</code> / <code>list_notes_by_layer</code></td>
+            <td><span class="pill always">常時 ON</span></td>
+          </tr>
+          <tr>
+            <td><strong>検索 DSL / FTS</strong></td>
+            <td><code>packages/shared/src/search-dsl.ts</code>（<code>path: tag: layer: scheme: jd: para:</code> + フレーズ + <code>-</code>否定）、worker <code>services/search.ts</code>・<code>fts.ts</code>（FTS5 trigram）</td>
+            <td><code>SearchPalette.tsx</code>（Ctrl+K）、フッターに演算子ヒント表示</td>
+            <td><code>GET /api/search</code>、MCP: <code>search_notes</code> / <code>grep_notes</code></td>
+            <td><span class="pill always">常時 ON</span> <span class="pill cond">標準（トグル対象外）</span></td>
+          </tr>
+          <tr>
+            <td><strong>PARA（Projects / Areas / Resources / Archives）</strong></td>
+            <td><code>packages/shared/src/move.ts</code>（<code>PARA_BUCKETS</code>）、worker <code>services/para.ts</code>（<code>ensureParaBuckets</code> / <code>paraArchiveProject</code>）、<code>NoteTree.tsx</code> の <code>ParaSection</code></td>
+            <td>ドライブルート上部の「PARA」セクション、フォルダメニュー「完了してアーカイブ（PARA）」（<code>home-page.ts:446-449</code>）</td>
+            <td><code>GET /api/para</code>、<code>POST /api/para/archive</code>、MCP: <code>para_list</code> / <code>para_archive_project</code></td>
+            <td><span class="pill cond">事実上 ON（後述）</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 id="s1-3">1.3 問題点</h3>
+
+      <div class="callout err">
+        <span class="tag err">問題 A</span>
+        <strong>PARA が「暗黙に always-on」かつ「暗黙にフォルダを採用」している。</strong>
+        <code>GET /api/para</code> は内部で <code>ensureParaBuckets</code>（<code>apps/worker/src/services/para.ts:56-81</code>）を呼び、
+        バケツ未割当なら<strong>同名の既存トップレベルフォルダを自動で「採用」（<code>para_bucket</code> を付与）</strong>、
+        無ければ<strong>新規作成</strong>する。つまり HomePage の <code>fetchPara</code>（<code>pages/HomePage.tsx:435-448</code>）が
+        ログイン済みユーザーの初回表示で <code>Projects / Areas / Resources / Archives</code> を勝手に作る。
+        「Projects」という自分のフォルダが既にあると、それが警告なく PARA の Projects バケツに格上げされる。
+      </div>
+
+      <div class="callout err">
+        <span class="tag err">問題 B</span>
+        <strong>フォルダ作成 API は冪等で競合エラーを返さない。</strong>
+        <code>ensureFolderRow</code>（<code>apps/worker/src/services/access.ts:819-847</code>）は同パス既存時に既存行を返すだけで、
+        <code>POST /api/folders</code>（<code>routes/folders.ts:279-334</code>）は 409 を返さない。
+        「名前がぶつかったら作成を止めて名前変更を促す」UX は現 API では表現できず、
+        事前に衝突を検出する専用の仕組みが必要。
+      </div>
+
+      <div class="callout err">
+        <span class="tag err">問題 C</span>
+        <strong>編集ヘッダーに機能が雑に詰め込まれている。</strong>
+        右 nav に最大 9 要素が一列。層・フォルダ・リンク・履歴は使用頻度が「共有」「モード切替」より低いのに
+        同じ視覚的重さで並び、狭い幅ではアイコンだけが連なって判別不能になる。
+        さらに opt-in 機能を今後増やすと、この行は確実に溢れる。
+      </div>
+
+      <div class="callout warn">
+        <span class="tag warn">問題 D</span>
+        <strong>設定に「アカウント横断の機能フラグ」という概念が無い。</strong>
+        現在の設定永続化は全て localStorage（<code>lib/editor-tab.ts</code> <code>miyulabmd:editor-tab-key</code>、
+        <code>lib/theme.ts</code> <code>miyulabmd:theme</code>、<code>lib/editor-mode.ts</code> <code>miyulabmd:editor-mode</code>）で、
+        端末ごとの UI 好みしか保存できない。サーバー側にユーザー設定ストアが存在しないため、
+        「PARA を有効化した」というアカウント状態を表す場所が無い。
+      </div>
+
+      <div class="callout warn">
+        <span class="tag warn">問題 E</span>
+        <strong>PARA ツリーは 1 オーナー 1 本しか持てない。</strong>
+        <code>folders.para_bucket</code> は <code>(owner_id, para_bucket)</code> で一意に引かれる
+        （<code>apps/worker/src/services/para.ts:31-38</code>）ため、「個人」と「仕事」で PARA を分けるような
+        複数ツリー運用を表現する場所がスキーマに存在しない。対応は §2.5「スペース」で行う。
+      </div>
+
+      <div class="callout warn">
+        <span class="tag warn">問題 F</span>
+        <strong>メダリオン層がノート単位で、フォルダ管理と直交している。</strong>
+        現行の層は <code>notes.layer</code>（bronze 既定）+ <code>gold_unlocked_until</code> + <code>note_layer_events</code>
+        の per-note モデル（<code>apps/worker/src/db/schema.sql:27-28,148-153</code>）。
+        その結果、1 つのフォルダ内に bronze/silver/gold が混在し、ツリー表示から「どこに何の品質のものがあるか」が読めない。
+        層は本来「精緻度のステージ」であり、整理の単位であるフォルダに割り当てるほうが構造と一致する（§2.6 で再設計）。
+      </div>
+    </section>
+
+    <!-- ================= 2. 設計方針 ================= -->
+    <section class="block" id="s2">
+      <h2 class="sec"><span class="num">2.</span>設計方針</h2>
+
+      <h3 id="s2-1">2.1 opt-in 原則</h3>
+      <ul>
+        <li><strong>新しいナレッジ管理フレームワーク機能は全て opt-in（デフォルト OFF）</strong>とする。データを作る副作用（フォルダ自動生成など）は、ユーザーが明示的に有効化するまで一切起こさない。</li>
+        <li><strong>wiki-link と検索 DSL は標準機能としてトグル対象外</strong>とする。wiki-link は常時 ON で困る副作用が無い。検索 DSL は演算子を「使わなければ結果に影響しない」性質のため、<code>jd:</code> / <code>para:</code> 等をユーザーが使っていなければ該当結果を返さないだけで、機能自体をゲートする意味がない。パーサ・補完・リンクパネル・演算子はコア機能として常に有効。</li>
+        <li><strong>既存の常時 ON 機能のうち 層 / 命名規則 は後方互換のためデフォルト ON のまま</strong>とし、同じトグル UI から opt-out 可能にする。「機能を無効化してもデータは消えない・サーバー動作は変わらない」ことを UI に明記する（例: 層を OFF にしてもノートの編集ロックは残る — 層は表示ラベルのみでロックは別機能、§2.6）。</li>
+        <li><strong>PARA はデフォルト OFF に転換</strong>する（現状の暗黙 auto-create を廃止）。既に <code>para_bucket</code> が付いたフォルダを持つユーザーは「有効」として移行する（後述の移行ルール）。</li>
+        <li>有効化は<strong>機能ごとに独立したトグル</strong>。機能間の依存（例: PARA アーカイブはフォルダ移動に依存）は機能内部で解決し、トグル同士は連動させない。</li>
+      </ul>
+
+      <h3 id="s2-2">2.2 設定画面「ナレッジ管理」グループの新設</h3>
+      <p>
+        <code>components/settings/SettingsLayout.tsx</code> の <code>GROUPS</code>（同:15-32）はグループ内に
+        複数項目を持てるため、<strong>「ナレッジ管理」グループに機能別のサブページをぶら下げる</strong>。
+        「ナレッジ管理 &gt; ナレッジ管理機能」という中身のない中間ページは作らない。
+        位置は「エディタ」と「開発者」の間が自然（コンテンツ構造の話であり、開発者向けではないため）。
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>ナビ項目</th><th>ルート</th><th>ページの中身</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>PARA メソッド</strong></td>
+            <td><code>/settings/knowledge/para</code></td>
+            <td>opt-in トグル + <strong>スペースの管理</strong>（スペース一覧・バケツ充足状況・「スペースを追加」・削除/割当解除）。有効化フロー（§2.4）と複数運用（§2.5）の正面口</td>
+          </tr>
+          <tr>
+            <td><strong>命名規則</strong></td>
+            <td><code>/settings/knowledge/schemes</code></td>
+            <td><strong>設定済みスキームの一覧</strong>（フォルダ・スキーム種別・次番号のプレビュー）。機能の有効/無効トグル。スキームの設定・解除自体はフォルダビューのコンテキストメニュー「命名規則…」（<code>home-page.ts:437-441</code> / <code>SchemeDialog.tsx</code>）で行うのが自然なので、ここでは参照＋機能トグルに留める</td>
+          </tr>
+          <tr>
+            <td><strong>メダリオン層</strong></td>
+            <td><code>/settings/knowledge/layers</code></td>
+            <td><strong>メダリオン設定（層セット）の管理</strong>: セット一覧・セットの追加/編集・層が割り当てられたフォルダの一覧（§2.6 のフォルダ割当方式）+ 機能の有効/無効トグル。フォルダへの割当自体はフォルダのコンテキストメニューで行い、ここではセットの管理と概要に留める。「無効化してもノート単位の編集ロックは残る」注意書き（§2.1 / §2.6）</td>
+          </tr>
+        </tbody>
+      </table>
+      <ul>
+        <li>ルート: <code>App.tsx</code> の <code>/settings</code> 配下に <code>path="knowledge/para"</code> 等を追加。<code>/settings/knowledge</code> 自体は最初の子（PARA）へリダイレクト。</li>
+        <li>ページ: <code>pages/settings/KnowledgeParaPage.tsx</code> / <code>KnowledgeSchemesPage.tsx</code> / <code>KnowledgeLayersPage.tsx</code>（新規）。既存ページ同様 <code>useOutletContext&lt;AppShellContext&gt;</code> でユーザーを取得。</li>
+        <li><strong>wiki-link と検索 DSL はページを持たない</strong>: ともに標準機能（§2.1）のためトグル不要。</li>
+      </ul>
+
+      <div class="wf">
+        <div class="wf-title">設定画面モック（左: サイドナビ / 右: PARA メソッドページ）</div>
+        <div class="settings-mock">
+          <div class="side">
+            <div class="grp">アカウント</div>
+            <div class="it">ユーザー設定</div>
+            <div class="grp">エディタ</div>
+            <div class="it">エディタ設定</div>
+            <div class="grp">ナレッジ管理</div>
+            <div class="it on">PARA メソッド</div>
+            <div class="it">命名規則</div>
+            <div class="it">メダリオン層</div>
+            <div class="grp">開発者</div>
+            <div class="it">MCP設定</div>
+            <div class="grp">サイト</div>
+            <div class="it">サイト設定</div>
+          </div>
+          <div class="main">
+            <div style="font-weight:700;margin-bottom:0.3rem">PARA メソッド <span class="tog" style="margin-left:0.5rem;vertical-align:0.1rem"></span></div>
+            <div style="color:var(--muted);font-size:0.72rem;margin-bottom:0.5rem">
+              Projects / Areas / Resources / Archives の 4 バケツをスペース単位で管理します。無効化してもデータは残ります。
+            </div>
+            <div class="feat">
+              <div>
+                <div class="nm">個人 <span class="pill always" style="vertical-align:0.1rem">4/4 バケツ</span></div>
+                <div class="ds">個人/Projects ・ 個人/Areas ・ 個人/Resources ・ 個人/Archives</div>
+              </div>
+              <span class="ds" style="color:var(--faint)">…</span>
+            </div>
+            <div class="feat">
+              <div>
+                <div class="nm">仕事 <span class="pill cond" style="vertical-align:0.1rem">3/4 バケツ</span></div>
+                <div class="ds">仕事/Projects ・ 仕事/Areas ・ 仕事/Resources — Archives は未作成（再セットアップ）</div>
+              </div>
+              <span class="ds" style="color:var(--faint)">…</span>
+            </div>
+            <div class="feat" style="justify-content:flex-start">
+              <span class="ds" style="color:var(--accent)">＋ スペースを追加</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h3 id="s2-3">2.3 opt-in 状態の保存先</h3>
+      <p>
+        選択肢を比較する。結論は <strong>B（サーバー保存）を唯一の権威とし、A をセッション内のちらつき抑制ミラー、
+        D を再訪問時の初回ペイント用ヒントとして併用</strong>。保持するクライアント側データは最小限にし、
+        設定画面は開いた時点で必ず最新のサーバー値を取り直す（ミラーに依存しない）。
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>案</th><th>保存先</th><th>利点</th><th>欠点</th><th>判定</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>A. sessionStorage</strong><br><code>miyulabmd:knowledge-features</code></td>
+            <td>タブごと・セッション限り</td>
+            <td>タブを閉じれば消えるため「サーバーが正」から逸脱しにくい。同一セッション内の画面遷移・リロードのちらつきを防ぐ。既存パターン（<code>editor-tab.ts</code> 等）と同じ仕組みで実装最小</td>
+            <td>新規タブ・再訪問では効かない（初回ペイントまではフラグ未確定）</td>
+            <td><span class="pill new">採用（セッション内ミラー）</span></td>
+          </tr>
+          <tr>
+            <td><strong>B. サーバー: ユーザー設定ストア</strong><br><code>users.settings</code> JSON 列 or <code>user_settings(user_id, key, value)</code></td>
+            <td>アカウント</td>
+            <td>端末横断で一貫。<code>paraList</code>・MCP が同じフラグを参照でき「未 opt-in なら副作用ゼロ」をサーバーで保証できる。<code>GET /api/me</code> 応答に載せれば追加リクエスト不要</td>
+            <td>スキーマ変更（1 列 or 1 テーブル）と PATCH エンドポイントが要る</td>
+            <td><span class="pill new">採用（権威）</span></td>
+          </tr>
+          <tr>
+            <td><strong>C. 派生状態</strong><br><code>para_bucket</code> 行の有無をそのままフラグに使う</td>
+            <td>サーバー（既存データ）</td>
+            <td>新規スキーマ不要。「バケツがある = 有効」で移行も楽</td>
+            <td>「一度有効にして後で無効にしたい」を表現できない。バケツがあっても UI を隠したいケースに対応不可</td>
+            <td><span class="pill off">補助的に使用</span></td>
+          </tr>
+          <tr>
+            <td><strong>D. localStorage（ユーザー別キー）</strong><br><code>miyulabmd:knowledge-features:&lt;userId&gt;</code></td>
+            <td>端末ごと・永続</td>
+            <td>再訪問時の初回ペイントでフラグ未確定期間を埋められる（オンライン前提のヒントとしては正しい使い道）</td>
+            <td>永続するため陳腐化・他ユーザー混入のリスクがある。後述の対策（userId 照合・ログアウト時消去）が必須</td>
+            <td><span class="pill cond">任意（初回ペイント用ヒント）</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout">
+        <span class="tag info">推奨構成</span>
+        <code>users</code> に <code>settings TEXT</code>（JSON）を追加し、<code>{"knowledge": {"para": true, "schemes": true, ...}}</code> を保持（wiki-link は標準機能のためフラグ自体を持たない）。
+        <code>PATCH /api/me</code> を拡張して <code>settings.knowledge</code> の部分更新を受け付ける（既存 <code>updateProfile</code> と同経路、<code>lib/api.ts:223-237</code>）。
+        Web 側は <code>AppShellContext.viewer.user</code> 経由でフラグを読む。ちらつき抑制は
+        <strong>sessionStorage ミラーを本命</strong>とし、永続化が必要な再訪問時の初回ペイントだけ
+        <strong>localStorage（ユーザー別キー）をヒント</strong>として使う。
+      </div>
+
+      <div class="callout warn">
+        <span class="tag warn">複数ユーザー・共用 PC 対策</span>
+        同じ PC で複数ユーザーがログインし得るため、クライアント側ミラーは<strong>必ずユーザーに紐付ける</strong>。
+        <ul style="margin:0.4rem 0 0;padding-left:1.2rem">
+          <li>localStorage ヒントは値に <code>{ userId, knowledge }</code> を内蔵し、<code>/api/me</code> 解決時に照合。ユーザー不一致なら破棄してサーバー値を使う（他人のフラグが一瞬でも適用されないようにする）。</li>
+          <li>sessionStorage も同一タブ内のアカウント切替（ログアウト → 別ユーザーでログイン）があり得るため、同様に userId を埋めて照合する。</li>
+          <li>ログアウト・アカウント切替・キャッシュ削除時は <code>identity-lifecycle.ts</code> のライフサイクルに乗せてミラーを消去する。</li>
+          <li>ミラーに入れるのは機能フラグの真偽値のみ（パス・タイトル等のコンテンツ情報は入れない）。</li>
+        </ul>
+      </div>
+
+      <div class="callout warn">
+        <span class="tag warn">移行ルール</span>
+        デプロイ時、<code>para_bucket</code> が 1 つでも割当済みのユーザーは <code>knowledge.para = true</code> として初期化（現状維持）。
+        それ以外は <code>false</code>（新規挙動）。これにより既存ユーザーのドライブ構造は変わらず、
+        新規ユーザーには PARA フォルダが勝手に生えなくなる。
+      </div>
+
+      <h3 id="s2-4">2.4 PARA 有効化フロー（競合検出 → 一時停止 → 名前変更 → 再実行）</h3>
+      <p>
+        ユーザーの要望どおり、<strong>「既存フォルダと名前がぶつかる場合は作成をいったん止め、被っているフォルダの名前変更を促すモーダル」</strong>を
+        状態機械として定義する。現行 <code>ensureParaBuckets</code> は衝突を「暗黙の採用」で解消するが、これを
+        <strong>ユーザー承認制</strong>に改める。
+      </p>
+
+      <h4>API 提案（副作用の分離）</h4>
+      <table>
+        <thead>
+          <tr><th>エンドポイント</th><th>副作用</th><th>応答</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>GET /api/para/plan?space=…</code>（新規）</td>
+            <td>なし</td>
+            <td>
+              スペースごとの判定:<br>
+              <code>{ space: { status: "exists" | "vacant" | "collision", existing?: { id, name } }, buckets: [{ bucket, status: "assigned" | "vacant" | "collision", existing?: { id, name } }] }</code><br>
+              <code>assigned</code> = <code>para_bucket</code> 付与済 / <code>vacant</code> = 新規作成可 /
+              <code>collision</code> = 既定名のフォルダが未割当で存在。<br>
+              バケツの衝突判定は<strong>スペースルート配下に限定</strong>する（§2.5 参照）。
+            </td>
+          </tr>
+          <tr>
+            <td><code>POST /api/para/enable</code>（新規）</td>
+            <td>スペース + バケツの作成 / 採用 / スキップ</td>
+            <td>
+              入力: <code>{ space: { name: string } | { id: string }, resolutions: { space?: {...}, projects: {action:"create"} | {action:"adopt", folderId} | {action:"rename", folderId, newName} | {action:"skip"}, ... } }</code><br>
+              <code>rename</code> は内部で既存 <code>PATCH /api/folders/:id</code>（renameFolder, <code>lib/api.ts:395-409</code>）相当を実行してからバケツを作成
+            </td>
+          </tr>
+          <tr>
+            <td><code>GET /api/para</code>（既存・変更）</td>
+            <td><strong>読み取り専用に改める</strong>（<code>ensureParaBuckets</code> を呼ばない）</td>
+            <td>未セットアップなら <code>{ spaces: [] }</code>。機能フラグでの 403 ゲートは設けない（§2.7: サーバー側は設定の実在のみを見る）。応答はスペース単位（§2.5）</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h4>UX 状態遷移</h4>
+      <div class="flow">
+        <div class="st start"><span class="t">OFF</span><span class="d">トグル OFF（デフォルト）</span></div>
+        <div class="arrow">→<span class="sub">トグル ON</span></div>
+        <div class="st action"><span class="t">checking</span><span class="d">GET /api/para/plan で衝突検査（副作用なし）</span></div>
+        <div class="arrow">→</div>
+        <div class="st decide"><span class="t">衝突?</span><span class="d">collision が 1 件でもあるか</span></div>
+        <div class="arrow">↘ なし<span class="sub">全て assigned / vacant</span></div>
+        <div class="st action"><span class="t">enabling</span><span class="d">POST /api/para/enable（vacant → 作成）</span></div>
+        <div class="arrow">→</div>
+        <div class="st done"><span class="t">ON</span><span class="d">PARA セクション表示 + アーカイブメニュー有効</span></div>
+      </div>
+      <div class="flow">
+        <div class="st decide"><span class="t">衝突あり</span><span class="d">例: 既存フォルダ「Projects」が未割当</span></div>
+        <div class="arrow">→</div>
+        <div class="st action"><span class="t">conflict モーダル</span><span class="d">衝突フォルダごとに 3 択:<br>① 既存フォルダを改名してバケツ新設<br>② 既存フォルダをバケツとして採用<br>③ そのバケツをスキップ</span></div>
+        <div class="arrow">→<span class="sub">全件解決して確定</span></div>
+        <div class="st action"><span class="t">re-run</span><span class="d">POST /api/para/enable を resolutions 付きで再実行</span></div>
+        <div class="arrow">→</div>
+        <div class="st done"><span class="t">ON</span><span class="d">skip したバケツは未作成のまま。設定画面から再セットアップ可能</span></div>
+      </div>
+      <div class="flow">
+        <div class="st action"><span class="t">conflict モーダル</span></div>
+        <div class="arrow">→<span class="sub">キャンセル</span></div>
+        <div class="st start"><span class="t">OFF に戻る</span><span class="d">作成・改名は一切行われない（トグルも OFF にロールバック）</span></div>
+      </div>
+
+      <div class="callout">
+        <span class="tag info">冪等性</span>
+        <code>POST /api/para/enable</code> は何度呼んでも安全にする（既 <code>assigned</code> は no-op、<code>skip</code> は記憶しない）。
+        モーダル表示中に別端末で同名フォルダが作られた競合は、<code>enable</code> 応答で残りの <code>collision</code> を返し、
+        モーダルを再表示してループさせる。楽観的「1 回で終わる」前提にしない。
+      </div>
+      <div class="callout">
+        <span class="tag info">無効化（OFF）の意味</span>
+        OFF にしても <code>para_bucket</code> 割当とフォルダ自体は残す（削除しない）。効果は UI 側のみ:
+        ① <code>NoteTree</code> の PARA セクション非表示（通常フォルダとして並ぶ）、
+        ② 「完了してアーカイブ（PARA）」メニュー非表示。
+        サーバー側は設定の実在を見るため <code>GET /api/para</code> は OFF でもスペースを返し、MCP の <code>para_*</code> ツールも残る（§2.7）。
+        再 ON で即座に復帰（再セットアップ不要、plan は全て assigned）。
+      </div>
+
+      <h3 id="s2-5">2.5 複数 PARA 運用（スペース）</h3>
+      <p>
+        「個人」と「仕事」で別々の PARA ツリーを持ちたい需要に対応するため、PARA の実体を
+        <strong>「スペース」= ユーザー命名のルートフォルダ + 4 バケツのセット</strong>として複数定義できるようにする。
+        例: トップレベルに「個人」「仕事」フォルダを作り、それぞれの配下に Projects / Areas / Resources / Archives を持つ。
+      </p>
+
+      <h4>現行モデルの制約</h4>
+      <p>
+        バケツ識別は <code>folders.para_bucket</code> 列で、検索条件は
+        <code>WHERE owner_id = ? AND para_bucket = ?</code>（<code>apps/worker/src/services/para.ts:31-38</code>）。
+        つまり <strong>1 オーナーにつき各バケツ 1 行 = PARA ツリーは 1 本しか持てない</strong>。
+        複数運用には「どのツリーのバケツか」の識別子が必須。
+      </p>
+
+      <h4>データモデル案</h4>
+      <table>
+        <thead>
+          <tr><th>案</th><th>構造</th><th>利点</th><th>欠点</th><th>判定</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>A. <code>para_spaces</code> テーブル + <code>folders.para_space_id</code></strong></td>
+            <td>
+              <code>para_spaces(id, owner_id, name, root_folder_id, created_at)</code><br>
+              バケツ行は <code>(owner_id, para_space_id, para_bucket)</code> で一意
+            </td>
+            <td>スペースを第一級のエンティティとして管理できる（一覧・改名・削除・表示順）。id 参照なのでスペースルートやフォルダの改名に強い。検索・MCP・UI で一貫した「スペース」語彙を持てる</td>
+            <td>テーブル + 列の追加、既存バケツ行のバックフィルが要る</td>
+            <td><span class="pill new">採用</span></td>
+          </tr>
+          <tr>
+            <td><strong>B. <code>para_bucket</code> を複合キー化</strong>（<code>"work:projects"</code>）</td>
+            <td>既存列にスペース名を埋め込む</td>
+            <td>スキーマ変更不要に近い</td>
+            <td>文字列結合のパースが全参照箇所に散らばる。スペース一覧・改名・削除を表現する場所が無い。スペース名に区切り文字を許せない等の制約が漏れやすい</td>
+            <td><span class="pill off">不採用</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout">
+        <span class="tag info">移行ルール</span>
+        既存の <code>para_bucket</code> 行は <strong>暗黙の「default」スペース</strong>（<code>para_space_id = NULL</code> または固定 id、ルート = ドライブ直下）に帰属させる。
+        バケツが直下に並ぶ現行構造は「ルートフォルダを持たないスペース」として表現でき、ユーザー側の見た目は変わらない。
+        その default スペースを後から「個人」フォルダ配下に移したい場合は、通常のフォルダ移動（バケツごと）で吸収可能。
+      </div>
+
+      <h4>スペースの構造ルール</h4>
+      <ul>
+        <li><strong>スペース名は同一オーナー内で一意</strong>（<code>para_spaces(owner_id, name)</code> に一意制約）。<code>para:work.projects</code> や <code>plan?space=</code> の名前解決を一意にするため。スペース名とルートフォルダ名は独立（adopt/rename してもスペース名は変わらない）。default スペース（ルートなし）は DSL では <code>para:projects</code>（全スペース横断）に含まれる。</li>
+        <li>スペースルートは<strong>自分のドライブ内の任意のフォルダ</strong>でよい（共有フォルダ内のスペースは認めない。権限と表示の混乱を防ぐ）。ルートを持たない default スペースはオーナーごとに最大 1 つ。</li>
+        <li><strong>同一フレームワークのフラットな重複は禁止</strong>: 1 フォルダが持てる PARA の役割は最大 1 つ（スペースルート xor バケツ）。1 フォルダが 2 つのスペースのバケツを兼ねる、バケツフォルダが別スペースのルートになる、等は不可 — 人間が管理できなくなるため。</li>
+        <li><strong>入れ子は許可</strong>: スペースの配下に別スペースを置ける（例: <code>個人/Projects/myproj/</code> が別スペース「myproj」のルート）。内側のスペースは独立した PARA ツリーとして扱い、外側スペースのツリー表示ではネストして見せる。</li>
+        <li>バケツ名の衝突判定は<strong>スペースルート直下の子に限定</strong>する。「個人/Projects」と「仕事/Projects」は別物であり、互いに衝突しない。</li>
+        <li>スペースルートフォルダ自体の衝突（既存フォルダ「個人」がある等）は、バケツと同じ rename / adopt / skip の 3 択で解決する（§2.4 のモーダルを流用）。adopt した既存フォルダが中身を持っていてもよい。</li>
+        <li>スペースの削除 = スペース割当の解除。<code>para_space_id</code> / <code>para_bucket</code> を外すだけでフォルダは残す（OFF と同じ思想）。ルートフォルダごと消す場合は通常のフォルダ削除に任せる。</li>
+      </ul>
+
+      <div class="callout">
+        <span class="tag info">属性の複合ルール（全フレームワーク共通）</span>
+        利用者の自由度を優先し、<strong>異なるフレームワーク（PARA / メダリオン層 / 命名規則）の併用・入れ子・同一フォルダ指定は全て許可</strong>する。
+        例: PARA のバケツフォルダにメダリオン層を割当てて Project 単位で層管理する、層フォルダ配下に命名規則フォルダを置く、スペース内にメダリオン構造を作る。
+        禁止するのは<strong>同一フレームワークのフラットな重複だけ</strong>（1 フォルダに 2 つのバケツ / 2 つの層割当 / 2 つのスキーム）。
+        同一フレームワークの入れ子（スペース内スペース、層フォルダ内の別層割当）は許可し、内側の割当が優先される。
+      </div>
+
+      <h4>UX フローへの差分</h4>
+      <div class="flow">
+        <div class="st start"><span class="t">OFF / 有効済</span><span class="d">トグル ON または設定カードの「スペースを追加」</span></div>
+        <div class="arrow">→</div>
+        <div class="st action"><span class="t">スペース名入力</span><span class="d">例: 「個人」。「ルートに直接作成（スペースなし）」も選択可</span></div>
+        <div class="arrow">→</div>
+        <div class="st action"><span class="t">checking</span><span class="d">GET /api/para/plan?space=個人（ルート + バケツ名を一括検査）</span></div>
+        <div class="arrow">→</div>
+        <div class="st decide"><span class="t">衝突?</span><span class="d">ルートまたはバケツに collision</span></div>
+        <div class="arrow">→</div>
+        <div class="st done"><span class="t">スペース ON</span><span class="d">PARA セクションにスペースごとのバケツ群が並ぶ</span></div>
+      </div>
+      <ul>
+        <li>競合モーダルは<strong>スペースルート行 + バケツ行の混在リスト</strong>になるだけで、機構は §2.4 と同一（rename/adopt/skip → resolutions 付き再実行）。</li>
+        <li>スペース追加は機能トグルとは独立に何度でも行える。設定カードにスペース一覧（名前・バケツ充足状況・「追加」ボタン）を出す。</li>
+      </ul>
+
+      <h4>各機能への波及</h4>
+      <table>
+        <thead>
+          <tr><th>領域</th><th>変更</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>GET /api/para</code> 応答</td>
+            <td><code>{ spaces: [{ id, name, rootPath, buckets: [...] }] }</code>。スペース未指定の既存呼び出しは default スペースを返す後方互換形にしてもよい</td>
+          </tr>
+          <tr>
+            <td>アーカイブ（<code>paraArchiveProject</code>）</td>
+            <td>移動元フォルダを含む Projects サブツリーを持つスペースを特定し、<strong>同一スペース内の Archives へ移動</strong>。フォルダは 1 つのツリーにしか属さないので曖昧さは生じない</td>
+          </tr>
+          <tr>
+            <td>NoteTree の PARA セクション</td>
+            <td>スペースごとに見出し + 4 バケツ行を並べる（例: 「個人」「仕事」の 2 セクション、またはスペースルートを見出しにする）。通常フォルダ一覧からバケツとスペースルート内バケツを除外する既存ロジックをスペース単位に拡張</td>
+          </tr>
+          <tr>
+            <td>検索 DSL</td>
+            <td><code>para:</code> 演算子を <code>para:projects</code>（全スペース横断）/ <code>para:work.projects</code>（スペース指定）に拡張</td>
+          </tr>
+          <tr>
+            <td>MCP</td>
+            <td><code>para_*</code> ツールに <code>space</code> 引数（省略時は全スペース or default）を追加</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 id="s2-6">2.6 メダリオン層のフォルダ割当化（再設計）</h3>
+      <p>
+        現行の per-note 層（<code>notes.layer</code>）をやめ、<strong>層をフォルダの属性にする</strong>。
+        ここでの層は「<strong>そのディレクトリに置く情報の種類</strong>」を表す表示ラベルであり、
+        <strong>昇格の仕組みは持たない</strong>。編集の可否は層とは独立した「ノート単位の編集ロック」で運用する。
+      </p>
+      <p>
+        層の構成は固定ではなく、PARA のスペースと同様に<strong>ユーザーが複数の「メダリオン設定（層セット）」を定義できる</strong>。
+        1 つのセットは「名前 + 順序付きの層リスト」（例: セット「精緻度」= raw / knowledge / output、
+        別セット「成熟度」= draft / review / published）。フォルダには<strong>「どのセットの、どの層か」</strong>を割り当てる。
+      </p>
+
+      <h4>データモデル</h4>
+      <table>
+        <thead>
+          <tr><th>要素</th><th>構造</th><th>備考</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>medallion_sets</code>（新規テーブル）</td>
+            <td><code>(id, owner_id, name, layers JSON /* 順序付き層リスト */, created_at)</code></td>
+            <td>1 オーナー複数セット。<code>GET /api/medallion/sets</code> で一覧、セットごとの層リストを取得できる</td>
+          </tr>
+          <tr>
+            <td>フォルダへの割当</td>
+            <td><code>folders.medallion_set_id</code> + <code>folders.medallion_layer</code>（セット内の層キー）</td>
+            <td>割当はフォルダのコンテキストメニュー「層の割当…」から。名前と層は独立</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="dim">
+        既定セット「精緻度」（raw / knowledge / output）をプリセットとして用意し、シンプルに使いたいユーザーはそれだけで運用できる。
+        割当たフォルダとその配下のノートにはメダル相当のバッジが表示されるだけで、
+        <strong>層による編集・削除の制限は一切設けない</strong>。
+      </p>
+
+      <h4>既定セット「精緻度」の層</h4>
+      <table>
+        <thead>
+          <tr><th>層キー</th><th>対応する現行層</th><th>役割</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>raw</code></td>
+            <td>bronze</td>
+            <td>原本・一次資料を保存する場所</td>
+          </tr>
+          <tr>
+            <td><code>knowledge</code></td>
+            <td>silver</td>
+            <td>raw を読んで作成した資料・メモ</td>
+          </tr>
+          <tr>
+            <td><code>output</code></td>
+            <td>gold</td>
+            <td>knowledge から作成したレポート・成果物</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h4>セットの編集規則</h4>
+      <ul>
+        <li><strong>層キーは immutable</strong>（<code>raw</code> 等の識別子）。編集できるのは表示ラベルと順序のみ。フォルダの <code>medallion_layer</code> はキー参照なのでラベル改名で割当が壊れない。</li>
+        <li><strong>層の追加は自由</strong>。<strong>削除は割当済みフォルダがある場合は不可</strong>（エラーを返し、先にフォルダの割当を外させる）。割当ゼロの層のみ削除可。</li>
+        <li><strong>セットの削除は許可</strong>（確認ダイアログ付き）。削除すると配下のフォルダ割当は全て解除されるが、フォルダ自体は残す（PARA スペース削除と同じ思想）。</li>
+      </ul>
+
+      <h4>割当と継承のルール</h4>
+      <ul>
+        <li><strong>1 フォルダ = 最大 1 割当</strong>（<code>medallion_set_id</code> + <code>medallion_layer</code> の単一ペア）。同一フォルダに複数セットの層は付けられない（フラット重複の禁止、§2.5 の複合ルール参照）。</li>
+        <li><strong>最も近い祖先の割当が勝つ</strong>: 自分に割当があれば自分、なければ親を遡る。層フォルダ配下に別セット/別層の割当を置く入れ子は許可され、内側が優先される。</li>
+        <li>PARA バケツ・スペースルート・命名規則フォルダとの同一フォルダ併用・入れ子は全て許可（§2.5 複合ルール）。</li>
+      </ul>
+
+      <h4>表示</h4>
+      <ul>
+        <li><strong>フォルダツリー</strong>: 層が割り当てられたフォルダにメダルバッジを表示（<code>NoteTree</code> の行アイコン脇）。子フォルダはパス継承で同じ層として扱う。</li>
+        <li><strong>エディタヘッダー</strong>: ノートを開いているとき、所属フォルダの層に応じたメダルバッジを表示する（情報表示のみ、操作は持たない）。</li>
+        <li>フォルダ移動（<code>FolderPopover</code> / DnD）で別の層フォルダに入れれば、そのノートの表示層も変わる。「昇格」という操作・イベント・履歴（<code>note_layer_events</code>）は存在しない。</li>
+      </ul>
+
+      <h4>編集ロック（層と独立・ファイル単位）</h4>
+      <ul>
+        <li>ノートごとに <strong>「編集ロック」フラグ</strong>を持たせる（現行の per-note gold ロック機構を層から切り離して一般化したもの）。<strong>ロック中はあらゆる変更操作をサーバー側で拒否する</strong>: 本文編集（DocumentRoom 更新拒否）・削除・フォルダ移動・共有変更・改名すべてブロックし、UI にはバナーと「ロック解除」導線を出す。許可されるのは閲覧とロック解除のみ（変更したい場合は必ず解除が先）。</li>
+        <li>ロック/解除は UI のトグル操作。時間制の自動解除（<code>gold_unlocked_until</code> 相当）は廃止し、解除は常に明示操作とする。層フォルダの種類とは無関係にどのノートでも使える（「raw 配下の原本をロックする」は代表的な運用例に過ぎない）。</li>
+        <li><strong>AI / MCP 経由の制御</strong>: <code>unlock_gold_for_edit</code> を <code>set_edit_lock(id, locked)</code> に置き換え、<strong>解除（<code>locked: false</code>）のみ <code>confirm: true</code> パラメータを必須</strong>にする（<code>promote_note</code> の gold 昇格と同じ既存慣例）。ロックは confirm 不要（安全側の操作なので）。実際の承認 UX は MCP クライアントのツール承認画面に委ね、サーバーは「confirm パラメータなしでは解除できない」一点を強制する。
+          「原本データを置いたら編集不可にする」等の振る舞いは<strong>プロンプトで指示する運用</strong>に委ねる。</li>
+      </ul>
+
+      <h4>なぜフォルダ割当 + 独立ロックが合うか</h4>
+      <ul>
+        <li><strong>構造と一致する</strong>: per-note 層は「フォルダ内に bronze/gold が混在する」状態を許し、ツリーから精緻度が読めなかった。フォルダ割当ならパスを見れば分かる。</li>
+        <li><strong>既存の仕組みに乗る</strong>: <code>folders</code> テーブルは既に <code>scheme</code> / <code>para_bucket</code> というフォルダ属性列を持つ。<code>medallion_sets</code> + フォルダの割当列の追加で済み、ロックは既存の per-note 機構をそのまま使う。昇格ゲート・層イベント・フォルダ制約の新設は全て不要になる。</li>
+        <li><strong>継承が自然</strong>: folders はパスベースなので、<code>raw/</code> に割り当てれば <code>raw/2026/</code> 等の子は prefix 判定で同じ層表示になる（scheme の採番スコープと同じ仕組み）。</li>
+        <li><strong>スペース・PARA と直交して組み合わせられる</strong>: <code>個人/raw</code> <code>仕事/output</code> のようにスペース配下に層フォルダを置ける。PARA は「時間・行動軸」、層は「情報種別軸」で役割が被らない。</li>
+      </ul>
+
+      <h4>検索 DSL・MCP への波及</h4>
+      <ul>
+        <li><code>layer:</code> 演算子をフォルダ割当層に再定義する。<code>layer:output</code> = 全セット横断で層キー <code>output</code> のフォルダ配下、<code>layer:精緻度.output</code> = セット指定（<code>para:</code> の <code>para:work.projects</code> と同じ構文規則）。</li>
+        <li>MCP の <code>list_notes_by_layer</code> は廃止し、<code>search_notes</code> の <code>layer:</code> 演算子で代替。<code>medallion_*</code> ツール（セット一覧・層割当）は機能トグルに連動。</li>
+      </ul>
+
+      <h4>移行</h4>
+      <ul>
+        <li><code>medallion_sets</code> テーブル新設 + <code>folders</code> に <code>medallion_set_id</code> / <code>medallion_layer</code> を追加。既存フォルダは未割当（層なし）。既定セット「精緻度」（raw / knowledge / output）はユーザーが層機能を有効化した時点でシードする。</li>
+        <li>既存の <code>notes.layer</code> は deprecated。<strong>ノートの振り分けウィザードは提供しない</strong> — per-note 層は実質未使用（管理対象ノートが存在しない）のため、振り分けの必要がない。層を使いたいユーザーはフォルダ割当を新たに行う。</li>
+        <li>gold ロック（<code>gold_unlocked_until</code>）は「編集ロック」フラグへ読み替えて継承。<code>note_layer_events</code>・昇格ゲート・層別一覧 API は撤去対象。</li>
+        <li>層の無効化（OFF）はメダル表示の非表示のみ。編集ロックは別機能なので OFF にしてもロック中ノートのバナーと解除導線は残る。</li>
+      </ul>
+
+      <h3 id="s2-7">2.7 機能レジストリによる拡張性</h3>
+      <p>
+        PARA 以外のフレームワーク追加（タグ軸管理、MOC、将来の独自スキームなど）に備え、
+        設定を「機能レジストリ」として定義する。各機能が自身のセットアップ手順を持つ構造。
+      </p>
+      <pre><code>// apps/web/src/lib/knowledge-features.ts（新規・案）
+type KnowledgeFeatureKey = "para" | "schemes" | "layers"; // wiki-link・検索DSL は標準機能のため対象外
+
+type KnowledgeFeature = {
+  key: KnowledgeFeatureKey;
+  label: string;
+  description: string;
+  /** true = 新規ユーザーにデフォルト ON（後方互換の既存機能のみ） */
+  defaultEnabled: boolean;
+  /** 有効化に副作用がある場合のセットアップ（PARA のみ実装、他は undefined） */
+  setup?: (ctx: SetupContext) =&gt; Promise&lt;SetupOutcome&gt;;
+  /** この機能が UI に出すもの（ヘッダー/サイドへの差し込み宣言） */
+  surfaces: { homeSection?: boolean; contextMenu?: boolean; editorHeader?: boolean };
+};</code></pre>
+      <ul>
+        <li>UI 側は <code>useKnowledgeFeature(key)</code> フック（<code>viewer.user.settings.knowledge</code> を読む）で出し分け。<code>NoteTree</code> の <code>paraBuckets</code> prop、<code>folderMenuItems</code> の「命名規則…」「完了してアーカイブ（PARA）」「層の割当…」、ツリーとヘッダーのメダルバッジ表示などが対象（wiki-link の <code>LinksPanel</code> ボタンは標準機能のため対象外）。</li>
+        <li><strong>MCP のツール公開は機能フラグではなく「設定の実在」で決まる</strong>: <code>para_spaces</code> が 1 件以上あれば <code>para_*</code> ツールが現れ、<code>medallion_sets</code> があれば <code>medallion_*</code>、スキーム設定フォルダがあれば <code>jd_*</code> / <code>scheme_*</code> が現れる。未設定ならツール自体がリストに存在しない（AI が「見つけて呼ぶ」経路が最初から無い）。<code>settings.knowledge</code> フラグは UI 表示の制御であり、サーバー側のゲートにはならない。</li>
+        <li>REST API も同様にフラグゲートを設けない。<code>GET /api/para</code> は未セットアップなら <code>{ spaces: [] }</code> を返すだけ（<code>ensureParaBuckets</code> 除去後は副作用ゼロ）。<code>POST /api/para/enable</code> 自体がセットアップ手段なので常に呼べる。</li>
+        <li>将来のフレームワーク（例: 「タグ軸管理」= タグ名の正規化・タグツリー表示）は <code>setup</code> を持たない単純トグル、または別の <code>setup</code> を持つ機能として 1 エントリ追加するだけで設定画面・ヘッダー差し込み・API ゲートが揃う。</li>
+      </ul>
+    </section>
+
+    <!-- ================= 3. ヘッダー再設計 ================= -->
+    <section class="block" id="s3">
+      <h2 class="sec"><span class="num">3.</span>ヘッダー再設計</h2>
+
+      <h3 id="s3-1">3.1 機能の分類</h3>
+      <p>右 nav の 9 要素を「常時表示 / 条件付き表示 / オーバーフローメニュー内」の 3 層に分ける。</p>
+
+      <table>
+        <thead>
+          <tr><th>分類</th><th>要素</th><th>理由</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="pill always">常時表示</span></td>
+            <td>表示モード切替（中央）、🔍 検索、⇪ 共有、アカウント</td>
+            <td>主要導線。共有は編集画面のプライマリ CTA（accent）なので最後まで残す</td>
+          </tr>
+          <tr>
+            <td><span class="pill cond">条件付き表示</span></td>
+            <td>共同編集者アバター（ピア存在時）、⟳ サイトを更新（記事ソース一致時）</td>
+            <td>出現自体がシグナル。既存の条件ロジックを維持。幅が足りないときはオーバーフローへ退避</td>
+          </tr>
+          <tr>
+            <td><span class="pill cond">条件付き表示</span></td>
+            <td><strong>🥉🥈🥇 メダルバッジ + フォルダパス</strong>（ノートの所属フォルダに層が割当済みのとき中央に表示）</td>
+            <td>層のフォルダ割当化（§2.6）により、層は「操作するもの」から「見えるもの」に変わる。情報表示のみ・操作なし</td>
+          </tr>
+          <tr>
+            <td><span class="pill menu">メニュー内</span></td>
+            <td>📁 フォルダ、🔗 リンク、🕘 履歴、🔒 編集ロック → 「⋯ ノート」オーバーフローメニューに集約</td>
+            <td>使用頻度が低く、メニュー項目から現行のポップオーバー/パネル/モーダルをそのまま開ける。ラベル付きのメニュー項目なのでアイコン猜測問題も解消</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout">
+        <span class="tag info">代替案との比較</span>
+        「フォルダ」は情報表示（現在地の可視化）でもあるため、メニュー化すると状態が見えなくなる欠点がある。
+        層のフォルダ割当化で「メダル + パス」のバッジが常時見えるようになったため、この欠点は実質的に解消された
+        （バッジがパスを兼ねる）。対案として「フォルダ項目をメニューではなく常時ボタンに残す」も有力だが、
+        本稿では「バッジで現在地を表示 + メニュー項目の先頭に現在値を出す」形を推奨する。
+      </div>
+
+      <h3 id="s3-2">3.2 レスポンシブルール</h3>
+      <p>
+        既存ブレークポイント <code>900px</code> / <code>640px</code>（AppHeader・HeaderButton・PresenceBar が使用中）に揃える。
+        新規に <code>1200px</code> を「フル表示」の目安として追加してもよいが、まずは既存 2 点で完結させる。
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>幅</th><th>右 nav の表示</th><th>オーバーフロー</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>≥ 900px</code><br>デスクトップ / タブレット横</td>
+            <td>メダルバッジ（条件付き）・検索・アカウント・共有（ラベル付）+ 条件付き 2 要素 + <strong>「フォルダ」はラベル付きボタンのまま残してよい</strong>（幅に余裕がある場合のみ）</td>
+            <td>「⋯」内: リンク / 履歴 / 編集ロック（+ 幅不足時にフォルダ）</td>
+          </tr>
+          <tr>
+            <td><code>640–900px</code><br>タブレット / 狭いウィンドウ</td>
+            <td>メダルバッジ（アイコンのみ）・検索・「⋯」・共有（アイコン+短ラベル or アイコン）・アカウント</td>
+            <td>「⋯」内: フォルダ / リンク / 履歴 / 編集ロック / サイトを更新</td>
+          </tr>
+          <tr>
+            <td><code>&lt; 640px</code><br>モバイル</td>
+            <td>メダル（アイコンのみ）・「⋯」・共有（アイコンのみ）・アカウント。検索は <span class="kbd">Ctrl+K</span> が効かないため「⋯」の先頭に「検索」項目として残す</td>
+            <td>「⋯」内: 検索 / フォルダ / リンク / 履歴 / 編集ロック / サイトを更新 / presence（「共同編集中: N人」の情報行）</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <ul>
+        <li>実装上の優先度ではなく <strong>CSS/コンテナクエリでの自然な折りたたみ</strong>を狙う。既存 <code>HeaderButton</code> の「ラベルを隠してアイコン化」戦略を維持しつつ、溢れた分を「⋯」に流すには JS による測定（ResizeObserver で nav 幅を見て low-priority 要素をメニューへ移す）が現実的。AppHeader は既に <code>--header-height</code> 計測用の ResizeObserver を持つ（<code>AppHeader.tsx:35-53</code>）ので同じ仕組みで拡張できる。</li>
+        <li>シンプル版（推奨・初期実装）: ブレークポイント固定ルールで <code>max-[900px]</code> 以下は常に「⋯」に 4 項目を収納、<code>≥900px</code> は全表示。測定式の動的折りたたみはフェーズ 3 の改善として切り分ける。</li>
+      </ul>
+
+      <h3 id="s3-3">3.3 opt-in 連動ルール</h3>
+      <ul>
+        <li>opt-in 機能が OFF のとき、その機能由来のヘッダー要素は<strong>レンダリングしない</strong>（disabled 表示もしない）。例: <code>layers</code> OFF → メダル表示が消えるが、ノート単位の編集ロックは別機能として残るため、ロック中ノートのバナーと解除導線は消さない（§2.6）。<code>schemes</code> OFF → 「命名規則…」メニュー項目が消える。wiki-link 由来の「リンク」ボタンは標準機能なので常に出る。</li>
+        <li>PARA 有効時のヘッダー変化は<strong>増やさない方向</strong>で設計する: エディタヘッダーには載せず、ホーム画面の PARA セクションとコンテキストメニューに留める。将来「ノートをバケツへ移動」等のショートカットを足す場合も「⋯」メニュー内項目として実装する。</li>
+        <li>メニュー内項目が全て OFF になった場合、「⋯」ボタン自体を描画しない。</li>
+      </ul>
+    </section>
+
+    <!-- ================= 4. モック ================= -->
+    <section class="block" id="s4">
+      <h2 class="sec"><span class="num">4.</span>UI モック / ワイヤーフレーム</h2>
+
+      <h3>4.1 再設計後のヘッダー（編集画面）</h3>
+      <div class="wf">
+        <div class="wf-title">デスクトップ ≥900px — 副次機能は「⋯」へ。層フォルダ配下のノートにはメダルバッジを表示</div>
+        <div class="hdr">
+          <span class="brand">MiyulabMD</span>
+          <span class="grow"></span>
+          <span class="hb" style="border-style:dashed;color:var(--muted)">🥈 knowledge/メモ</span>
+          <span class="hb seg">👁 View | ✏️ Edit ▾</span>
+          <span class="grow"></span>
+          <span class="hb icon-only">🔍</span>
+          <span class="hb ghost">⟳ サイトを更新</span>
+          <span class="hb"><span class="ava"></span><span class="ava b" style="margin-left:-0.5rem"></span></span>
+          <span class="hb icon-only">⋯</span>
+          <span class="hb accent">⇪ 共有</span>
+          <span class="hb"><span class="ava"></span></span>
+        </div>
+        <div class="wf-cap">
+          中央の「🥈 knowledge/メモ」は<strong>所属フォルダ由来のメダル + パス表示</strong>（情報表示のみ・操作なし）。
+          層フォルダ外のノートでは非表示。「⋯」= 層: knowledge（フォルダ由来）/ フォルダ / リンク / 履歴 の項目（現在値つき）。
+          右 nav は最大 6 要素に削減。
+        </div>
+      </div>
+
+      <div class="wf">
+        <div class="wf-title">「⋯」オーバーフローメニュー展開イメージ</div>
+        <div class="hdr" style="position:relative">
+          <span class="brand">MiyulabMD</span>
+          <span class="grow"></span>
+          <span class="hb" style="border-style:dashed;color:var(--muted)">🥈 knowledge/メモ</span>
+          <span class="hb seg">👁 View | ✏️ Edit ▾</span>
+          <span class="grow"></span>
+          <span class="hb icon-only">🔍</span>
+          <span class="hb icon-only" style="outline:2px solid var(--accent)">⋯</span>
+          <span class="hb accent">⇪ 共有</span>
+          <span class="hb"><span class="ava"></span></span>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:0.4rem">
+          <div style="border:1px solid var(--line);border-radius:8px;background:#fff;min-width:13rem;font-size:0.78rem;box-shadow:0 8px 24px rgba(20,25,60,.12);margin-right:5.5rem">
+            <div style="padding:0.4rem 0.8rem;border-bottom:1px solid var(--line-soft)">📁 フォルダ: <strong>knowledge/メモ</strong> <span style="color:var(--faint)">›</span></div>
+            <div style="padding:0.4rem 0.8rem;border-bottom:1px solid var(--line-soft)">� リンク</div>
+            <div style="padding:0.4rem 0.8rem;border-bottom:1px solid var(--line-soft)">� 履歴</div>
+            <div style="padding:0.4rem 0.8rem;border-bottom:1px solid var(--line-soft)">� 編集ロックを設定</div>
+            <div style="padding:0.4rem 0.8rem;color:var(--muted)">⟳ サイトを更新</div>
+          </div>
+        </div>
+        <div class="wf-cap">
+          層はフォルダ由来の情報表示（ヘッダーのメダル）に集約したためメニュー項目は「フォルダ / リンク / 履歴 / 編集ロック」に。
+          「編集ロック」はノート単位のトグル（§2.6）。フォルダ・リンク・履歴は既存のポップオーバー/パネルを開く。
+        </div>
+      </div>
+
+      <div class="wf">
+        <div class="wf-title">モバイル &lt;640px — 最小構成</div>
+        <div class="hdr">
+          <span class="brand">MiyulabMD</span>
+          <span class="grow"></span>
+          <span class="hb" style="border-style:dashed;color:var(--muted)">🥈</span>
+          <span class="hb seg">👁 | ✏️</span>
+          <span class="grow"></span>
+          <span class="hb icon-only">⋯</span>
+          <span class="hb accent">⇪</span>
+          <span class="hb"><span class="ava"></span></span>
+        </div>
+        <div class="wf-cap">「⋯」の先頭に「🔍 検索」を含める。presence はメニュー内の情報行「共同編集中: 2人」に格納。メダルはアイコンのみに縮退。</div>
+      </div>
+
+      <h3>4.2 PARA セットアップのモーダル群</h3>
+      <div class="wf">
+        <div class="wf-title">「スペースを追加」モーダル（スペース名入力 → 衝突検査へ）</div>
+        <div class="modal-mock">
+          <div class="mh">PARA スペースを追加 <span style="color:var(--faint)">✕</span></div>
+          <div class="mb">
+            <div style="margin-bottom:0.5rem">新しい PARA ツリーを作る場所（スペース）を指定します。</div>
+            <div style="display:grid;gap:0.3rem;font-size:0.78rem">
+              <label style="display:flex;gap:0.4rem;align-items:baseline">
+                <input type="radio" name="s" checked> 新規フォルダをスペースにする →
+                <input type="text" value="仕事" style="width:8rem;border:1px solid var(--line);border-radius:5px;padding:0.2rem 0.4rem">
+              </label>
+              <label style="display:flex;gap:0.4rem;align-items:baseline"><input type="radio" name="s"> ルートに直接作成（スペースなし・default）</label>
+            </div>
+            <div style="margin-top:0.6rem;font-size:0.74rem;color:var(--muted)">
+              「仕事/Projects」「仕事/Areas」「仕事/Resources」「仕事/Archives」を作成します。<br>
+              既存の「個人」スペースとは独立して管理されます。
+            </div>
+          </div>
+          <div class="mf">
+            <span class="hb">キャンセル</span>
+            <span class="hb accent">衝突を確認して作成</span>
+          </div>
+        </div>
+        <div class="wf-cap">
+          確定で <code>GET /api/para/plan?space=仕事</code> を実行。スペースルート「仕事」や配下バケツ名の衝突があれば
+          次の競合モーダル（rename/adopt/skip）へ遷移し、なければそのまま作成される。
+        </div>
+      </div>
+
+      <div class="wf">
+        <div class="wf-title">「フォルダ名の競合」モーダル（conflict 状態・スペースルートとバケツの混在リスト）</div>
+        <div class="modal-mock">
+          <div class="mh">PARA スペース「仕事」の準備 <span style="color:var(--faint)">✕</span></div>
+          <div class="mb">
+            <div style="margin-bottom:0.5rem">既存のフォルダと名前が重複しています。各項目の対処を選んでください。</div>
+            <div class="conflict-row">
+              <span class="fname">仕事（スペース）</span>
+              <span style="color:var(--warn);font-size:0.7rem">既存フォルダと同名</span>
+            </div>
+            <div style="display:grid;gap:0.25rem;font-size:0.76rem;margin:0.2rem 0 0.6rem">
+              <label style="display:flex;gap:0.4rem;align-items:baseline"><input type="radio" name="r" checked> 既存フォルダを改名 →
+                <input type="text" value="仕事 (old)" style="width:8rem;border:1px solid var(--line);border-radius:5px;padding:0.2rem 0.4rem"></label>
+              <label style="display:flex;gap:0.4rem;align-items:baseline"><input type="radio" name="r"> 既存「仕事」をスペースルートとして使う（中身はそのまま）</label>
+            </div>
+            <div class="ok-row">✓ 仕事/Areas — 新規作成できます</div>
+            <div class="ok-row">✓ 仕事/Resources — 新規作成できます</div>
+            <div class="ok-row">✓ 仕事/Archives — 新規作成できます</div>
+            <div class="conflict-row">
+              <span class="fname">仕事/Projects</span>
+              <span style="color:var(--warn);font-size:0.7rem">スペースルート内に同名フォルダ</span>
+            </div>
+            <div style="display:grid;gap:0.25rem;font-size:0.76rem;margin-top:0.2rem">
+              <label style="display:flex;gap:0.4rem;align-items:baseline"><input type="radio" name="c" checked> 既存フォルダを改名 →
+                <input type="text" value="Projects (old)" style="width:8rem;border:1px solid var(--line);border-radius:5px;padding:0.2rem 0.4rem"></label>
+              <label style="display:flex;gap:0.4rem;align-items:baseline"><input type="radio" name="c"> 既存「仕事/Projects」を Projects バケツとして使う</label>
+              <label style="display:flex;gap:0.4rem;align-items:baseline"><input type="radio" name="c"> Projects バケツは作成しない</label>
+            </div>
+          </div>
+          <div class="mf">
+            <span class="hb">キャンセル</span>
+            <span class="hb accent">解決して作成</span>
+          </div>
+        </div>
+        <div class="wf-cap">
+          スペースルート行とバケツ行が混在するだけで機構は同一（rename/adopt/skip → resolutions 付き <code>POST /api/para/enable</code>）。
+          既存の <code>Modal</code>（<code>components/ui/Modal.tsx</code>）+ <code>FolderCreateModal</code> の改名 UI パターンを再利用。
+          「採用」は現行 <code>ensureParaBuckets</code> の暗黙動作を明示選択肢に格上げしたもの。
+        </div>
+      </div>
+
+      <h3>4.3 設定ページ（命名規則 / メダリオン層）</h3>
+      <div class="wf-row">
+        <div class="wf">
+          <div class="wf-title">命名規則ページ — 設定済み一覧（参照のみ）</div>
+          <div class="settings-mock">
+            <div class="main" style="border:0;padding:0">
+              <div style="font-weight:700;margin-bottom:0.3rem">命名規則 <span class="tog" style="margin-left:0.4rem;vertical-align:0.1rem"></span></div>
+              <div class="feat"><div><div class="nm">inbox/<span class="pill menu" style="font-size:0.66rem">Johnny.Decimal</span></div><div class="ds">次番号: 12.34 → 作成時に自動提案。設定・解除はフォルダの「命名規則…」メニューで行います</div></div></div>
+              <div class="feat"><div><div class="nm">個人/Resources/<span class="pill menu" style="font-size:0.66rem">Zettelkasten</span></div><div class="ds">採番スコープ内 42 フォルダ</div></div></div>
+              <div class="feat" style="justify-content:flex-start"><span class="ds" style="color:var(--faint)">スキームの割当はフォルダビューのコンテキストメニューから行います</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="wf">
+          <div class="wf-title">メダリオン層ページ — 割当フォルダ一覧 + トグル</div>
+          <div class="settings-mock">
+            <div class="main" style="border:0;padding:0">
+              <div style="font-weight:700;margin-bottom:0.3rem">メダリオン層 <span class="tog" style="margin-left:0.4rem;vertical-align:0.1rem"></span></div>
+              <div class="feat"><div><div class="nm">🥉 raw/</div><div class="ds">原本・一次資料 — 12 ノート（うち 🔒 ロック中 5）</div></div></div>
+              <div class="feat"><div><div class="nm">🥈 knowledge/</div><div class="ds">raw から作成した資料 — 34 ノート</div></div></div>
+              <div class="feat"><div><div class="nm">🥇 output/</div><div class="ds">レポート・成果物 — 8 ノート</div></div></div>
+              <div class="feat" style="justify-content:flex-start"><span class="ds" style="color:var(--faint)">割当はフォルダのコンテキストメニューから。無効化してもノートの編集ロックは残ります</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h3>4.4 ホーム画面（PARA スペース + メダルバッジ）</h3>
+      <div class="wf">
+        <div class="wf-title">ドライブツリー — スペースごとの PARA セクション + 層フォルダのメダル表示</div>
+        <div style="border:1px solid var(--line);border-radius:8px;background:#fff;padding:0.6rem 0.9rem;font-size:0.8rem;font-family:var(--mono);line-height:1.9">
+          <div style="color:var(--faint);font-size:0.68rem;letter-spacing:0.05em">PARA — 個人</div>
+          <div>📁 Projects <span style="color:var(--faint)">12</span></div>
+          <div>📁 Areas <span style="color:var(--faint)">4</span></div>
+          <div>📁 Resources <span style="color:var(--faint)">27</span></div>
+          <div>📁 Archives <span style="color:var(--faint)">9</span></div>
+          <div style="color:var(--faint);font-size:0.68rem;letter-spacing:0.05em;margin-top:0.4rem">PARA — 仕事</div>
+          <div>📁 Projects <span style="color:var(--faint)">3</span></div>
+          <div>📁 Areas <span style="color:var(--faint)">2</span></div>
+          <div>📁 Resources <span style="color:var(--faint)">8</span></div>
+          <div>📁 Archives <span style="color:var(--faint)">1</span></div>
+          <div style="color:var(--faint);font-size:0.68rem;letter-spacing:0.05em;margin-top:0.4rem">フォルダ</div>
+          <div>🥉 <strong>raw</strong>/ <span style="color:var(--faint)">12</span></div>
+          <div style="padding-left:1.2rem;color:var(--muted)">📄 2026-09 ログ収集メモ 🔒</div>
+          <div>🥈 <strong>knowledge</strong>/ <span style="color:var(--faint)">34</span></div>
+          <div>🥇 <strong>output</strong>/ <span style="color:var(--faint)">8</span></div>
+          <div>📁 inbox/ <span style="color:var(--faint)">5</span></div>
+        </div>
+        <div class="wf-cap">
+          現行 <code>NoteTree</code> の <code>ParaSection</code>（<code>NoteTree.tsx:604-627</code>）をスペースごとに繰り返す形に拡張。
+          メダルバッジは層フォルダとその配下（パス継承）に表示。<code>🔒</code> はノート単位の編集ロック。
+          通常フォルダ一覧からバケツを除外する既存ロジック（<code>sortedFolders</code>）はスペース単位に拡張。
+        </div>
+      </div>
+
+      <h3>4.5 編集ロック（層と独立）</h3>
+      <div class="wf-row">
+        <div class="wf">
+          <div class="wf-title">ロック中ノートの編集画面 — バナー + 解除導線</div>
+          <div class="hdr">
+            <span class="brand">MiyulabMD</span>
+            <span class="grow"></span>
+            <span class="hb" style="border-style:dashed;color:var(--muted)">🥉 raw/ログ</span>
+            <span class="hb seg">👁 View</span>
+            <span class="grow"></span>
+            <span class="hb icon-only">⋯</span>
+            <span class="hb accent">⇪</span>
+            <span class="hb"><span class="ava"></span></span>
+          </div>
+          <div style="margin-top:0.4rem;border:1px solid var(--warn);background:var(--warn-soft);border-radius:8px;padding:0.5rem 0.8rem;font-size:0.78rem;display:flex;justify-content:space-between;align-items:center">
+            <span>🔒 このノートは編集ロックされています</span>
+            <span class="hb">ロックを解除</span>
+          </div>
+          <div class="wf-cap">ロック中は View のみ。解除は「⋯」の「編集ロックを解除」またはバナーのボタンから。層（🥉）とは独立に機能する。</div>
+        </div>
+        <div class="wf">
+          <div class="wf-title">AI / MCP 経由の解除 — ユーザー確認（ask）</div>
+          <div class="modal-mock">
+            <div class="mh">編集ロックの解除 <span style="color:var(--faint)">✕</span></div>
+            <div class="mb" style="font-size:0.78rem">
+              AI（MCP クライアント）がノート「raw/2026-09 ログ収集メモ」の<strong>編集ロックを解除</strong>しようとしています。<br>
+              <span style="color:var(--muted);font-size:0.72rem">ロックの設定は確認不要ですが、解除には必ず確認が求められます。</span>
+            </div>
+            <div class="mf">
+              <span class="hb">拒否</span>
+              <span class="hb accent">解除を許可</span>
+            </div>
+          </div>
+          <div class="wf-cap">「原本を置いたらロックする」等の運用はプロンプト指示に委ね、サーバーは<strong>AI による解除には人間の承認が要る</strong>ことだけを強制する。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 5. 実装計画 ================= -->
+    <section class="block" id="s5">
+      <h2 class="sec"><span class="num">5.</span>実装計画</h2>
+
+      <div class="phase">
+        <div class="ph-h"><span class="pnum">P1</span>設定基盤: ユーザー設定ストア + ナレッジ管理ページ</div>
+        <div class="ph-b">
+          <ul>
+            <li>worker: <code>users</code> に <code>settings TEXT</code> 追加（migration）、<code>PATCH /api/me</code> で <code>settings.knowledge</code> 部分更新、<code>GET /api/me</code> 応答に同梱</li>
+            <li>shared: <code>KnowledgeFeatureKey</code> / 既定値 / <code>SessionUser.settings</code> 型</li>
+            <li>web: <code>lib/knowledge-features.ts</code>（レジストリ + read/write ヘルパ + <code>useKnowledgeFeature</code>）。ミラーは sessionStorage（userId 照合つき）を本命、localStorage はユーザー別キーの初回ペイント用ヒントとして任意実装</li>
+            <li>web: <code>pages/settings/KnowledgeParaPage.tsx</code> / <code>KnowledgeSchemesPage.tsx</code> / <code>KnowledgeLayersPage.tsx</code> 新規、<code>SettingsLayout.tsx</code> GROUPS に「ナレッジ管理」グループ（3 項目）追加、<code>App.tsx</code> に <code>/settings/knowledge/*</code> ルート追加（<code>/settings/knowledge</code> → para へリダイレクト）</li>
+            <li>移行: 既存 <code>para_bucket</code> 割当ユーザーは <code>para=true</code> 初期化（worker 側で para 応答時 or マイグレーション）</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="ph-h"><span class="pnum">P2</span>PARA opt-in 化 + セットアップフロー</div>
+        <div class="ph-b">
+          <ul>
+            <li>worker: <code>GET /api/para</code> を読み取り専用化（<code>paraList</code> から <code>ensureParaBuckets</code> 呼び出しを分離。フラグ OFF or 未セットアップは空応答）</li>
+            <li>worker: <code>GET /api/para/plan</code> 新規（assigned / vacant / collision 判定）、<code>POST /api/para/enable</code> 新規（resolutions 付き、rename → adopt → create → skip を適用）。<strong>この時点で <code>space</code> 引数を受け付ける形にしておき</strong>、P4 での再設計を防ぐ（P2 では常に default スペース）</li>
+            <li>web: <code>lib/api.ts</code> に <code>fetchParaPlan</code> / <code>enablePara</code> 追加</li>
+            <li>web: ナレッジ管理ページの PARA トグル → checking → 競合モーダル（<code>ParaConflictModal.tsx</code> 新規）→ enable 再実行の状態機械</li>
+            <li>web: <code>HomePage.tsx</code> の <code>reloadPara</code> をフラグ連動に変更、<code>NoteTree</code> / <code>folderMenuItems</code>（「完了してアーカイブ（PARA）」「命名規則…」）を feature flag で出し分け</li>
+            <li>MCP: <code>para_*</code> / <code>jd_*</code> ツールをフラグ連動に（<code>mcp.ts</code> ツールリストの公開制御）</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="ph-h"><span class="pnum">P3</span>ヘッダー整理（オーバーフローメニュー + レスポンシブ）</div>
+        <div class="ph-b">
+          <ul>
+            <li>web: <code>components/ui/</code> に <code>OverflowMenu</code> 相当を追加（既存 <code>MenuPanel</code>/<code>MenuItem</code> を利用、「⋯」ボタン + 項目）</li>
+            <li>web: <code>EditorPage.tsx</code> の <code>EditorHeaderEnd</code>（同:434-480）を再編: フォルダ/リンク/履歴/編集ロックを「⋯」メニュー項目化（FolderPopover / LinksPanel / HistoryPanel は現行を再利用）。層はメニュー項目ではなく、§2.6 のメダルバッジ（所属フォルダ由来・中央スロット表示）に置き換え</li>
+            <li>web: <code>AppHeader.tsx</code> の nav に「⋯」スロットとブレークポイント別表示ルール（900px/640px）。モバイルはメニュー内に検索項目を追加</li>
+            <li>web: feature flag OFF 時はメニュー項目ごと非表示、全項目 OFF なら「⋯」自体を消す</li>
+            <li>（改善・後回し可）ResizeObserver による動的折りたたみ — 幅で「層」「フォルダ」をボタン↔メニュー項目に自動昇降格</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="ph-h"><span class="pnum">P4</span>PARA スペース（複数運用）</div>
+        <div class="ph-b">
+          <ul>
+            <li>worker: <code>para_spaces</code> テーブル + <code>folders.para_space_id</code> 列追加（migration）。既存バケツ行は default スペースへバックフィル</li>
+            <li>worker: <code>paraList</code> をスペース一覧応答に拡張、<code>plan</code>/<code>enable</code> に <code>space</code> 引数（スペースルートの衝突判定を含む）</li>
+            <li>worker: <code>paraArchiveProject</code> をスペース解決型に（元フォルダを含むスペースの Archives へ）</li>
+            <li>web: ナレッジ管理カードにスペース一覧 + 「スペースを追加」、スペース名入力モーダル → 既存の checking/競合モーダル/re-run をスペース単位で再利用</li>
+            <li>web: <code>NoteTree</code> の PARA セクションをスペースごと表示に拡張</li>
+            <li>shared/MCP: 検索 DSL <code>para:space.bucket</code>、<code>para_*</code> ツールの <code>space</code> 引数</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="ph-h"><span class="pnum">P5</span>メダリオン層のフォルダ割当化 + 編集ロック独立化</div>
+        <div class="ph-b">
+          <ul>
+            <li>worker: <code>medallion_sets</code> テーブル + <code>folders.medallion_set_id</code> / <code>folders.medallion_layer</code> 追加（表示ラベルのみ・制約なし）+ セット CRUD / 割当/解除エンドポイント（<code>GET /api/medallion/sets</code> 等）。既定セット「精緻度」は有効化時にシード</li>
+            <li>worker: gold ロックを層から切り離し「編集ロック」フラグに一般化（ロック中は本文編集・削除・移動・共有・改名を全て拒否）。<strong>MCP は <code>set_edit_lock(id, locked)</code> に置き換え、解除のみ <code>confirm: true</code> 必須</strong>（<code>promote_note</code> と同慣例）、ロックは confirm 不要</li>
+            <li>web: フォルダコンテキストメニューに「層の割当…」（セット + 層を選択）、ツリーのフォルダ行とエディタヘッダーにメダルバッジ表示（情報表示のみ、昇格操作なし）</li>
+            <li>web: 設定ページでセット管理（追加・層リスト編集・割当フォルダ一覧）。振り分けウィザードは作らない（既存ノートに層管理実績なし）</li>
+            <li>shared: <code>layers.ts</code> をフォルダ層モデルに更新、検索 DSL <code>layer:</code> は <code>layer:&lt;層&gt;</code>（全セット横断）/ <code>layer:&lt;セット&gt;.&lt;層&gt;</code> に再定義</li>
+            <li>deprecated: <code>notes.layer</code> / <code>note_layer_events</code> / 昇格ゲート / <code>list_notes_by_layer</code> は参照を外し後続で撤去</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>影響ファイル対応表</h3>
+      <table>
+        <thead>
+          <tr><th>ファイル</th><th>変更</th><th>フェーズ</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>apps/worker/src/db/</code>（schema / migration）</td><td><code>users.settings</code> 列追加</td><td>P1</td></tr>
+          <tr><td><code>apps/worker/src/routes/auth.ts</code> or <code>me</code> 系ルート</td><td><code>PATCH /api/me</code> で settings 更新、<code>GET /api/me</code> 応答拡張</td><td>P1</td></tr>
+          <tr><td><code>packages/shared/src/</code>（index / user.ts）</td><td><code>KnowledgeFeatureKey</code> 型、<code>SessionUser.settings</code>、既定値</td><td>P1</td></tr>
+          <tr><td><code>apps/web/src/lib/knowledge-features.ts</code>（新規）</td><td>レジストリ + <code>useKnowledgeFeature</code> + sessionStorage ミラー（localStorage ヒントは任意）</td><td>P1</td></tr>
+          <tr><td><code>apps/web/src/pages/settings/Knowledge{Para,Schemes,Layers}Page.tsx</code>（新規）</td><td>PARA: トグル + スペース管理 / 命名規則: 設定済み一覧 / メダリオン層: トグル + 概要</td><td>P1/P2</td></tr>
+          <tr><td><code>apps/web/src/components/settings/SettingsLayout.tsx</code></td><td><code>GROUPS</code> に「ナレッジ管理」追加（:15-32）</td><td>P1</td></tr>
+          <tr><td><code>apps/web/src/App.tsx</code></td><td><code>/settings/knowledge/{para,schemes,layers}</code> ルート追加 + <code>/settings/knowledge</code> → para リダイレクト（:25-34）</td><td>P1</td></tr>
+          <tr><td><code>apps/worker/src/services/para.ts</code></td><td><code>paraList</code> から <code>ensureParaBuckets</code> を分離、plan/enable サービス追加</td><td>P2</td></tr>
+          <tr><td><code>apps/worker/src/routes/para.ts</code></td><td><code>GET /plan</code>、<code>POST /enable</code> 追加（既存 :15-61）</td><td>P2</td></tr>
+          <tr><td><code>apps/web/src/lib/api.ts</code></td><td><code>fetchParaPlan</code> / <code>enablePara</code> / settings PATCH 追加</td><td>P1/P2</td></tr>
+          <tr><td><code>apps/web/src/components/notes/ParaConflictModal.tsx</code>（新規）</td><td>競合解消モーダル（rename/adopt/skip）</td><td>P2</td></tr>
+          <tr><td><code>apps/web/src/pages/HomePage.tsx</code></td><td><code>reloadPara</code> をフラグ連動に（:435-456）</td><td>P2</td></tr>
+          <tr><td><code>apps/web/src/pages/home-page.ts</code></td><td><code>folderMenuItems</code> の PARA/scheme 項目をフラグ条件化（:437-450）</td><td>P2</td></tr>
+          <tr><td><code>apps/web/src/components/notes/NoteTree.tsx</code></td><td><code>paraBuckets</code> 表示条件は呼び出し側で制御（変更不要の可能性大）</td><td>P2</td></tr>
+          <tr><td><code>apps/web/src/pages/EditorPage.tsx</code></td><td><code>EditorHeaderEnd</code> 再編（:434-480）—「⋯」メニューへ 4 機能集約、フラグ連動</td><td>P3</td></tr>
+          <tr><td><code>apps/web/src/components/layout/AppHeader.tsx</code></td><td>「⋯」スロット + ブレークポイント別 nav ルール（:79-102）</td><td>P3</td></tr>
+          <tr><td><code>apps/web/src/components/ui/</code>（新規 <code>OverflowMenu.tsx</code>）</td><td>「⋯」ボタン + メニュー（<code>Menu.tsx</code> 部品再利用）</td><td>P3</td></tr>
+          <tr><td><code>apps/worker/src/mcp/</code></td><td><code>para_*</code> / <code>jd_*</code> ツール公開をフラグ連動</td><td>P2</td></tr>
+          <tr><td><code>apps/worker/src/db/</code>（schema / migration）</td><td><code>para_spaces</code> テーブル + <code>folders.para_space_id</code>、既存行を default スペースへバックフィル</td><td>P4</td></tr>
+          <tr><td><code>apps/worker/src/services/para.ts</code></td><td><code>bucketRow</code> の一意キーに space を追加、スペース一覧/解決、アーカイブのスペース内移動</td><td>P4</td></tr>
+          <tr><td><code>apps/web/src/components/notes/ParaSpaceModal.tsx</code>（新規）</td><td>スペース名入力 + スペースルート競合の解決（競合モーダルと部品共有）</td><td>P4</td></tr>
+          <tr><td><code>apps/web/src/components/notes/NoteTree.tsx</code></td><td>PARA セクションをスペースごとに描画</td><td>P4</td></tr>
+          <tr><td><code>packages/shared/src/search-dsl.ts</code>, <code>apps/worker/src/services/search.ts</code></td><td><code>para:space.bucket</code> 形式のパースとクエリ</td><td>P4</td></tr>
+          <tr><td><code>apps/worker/src/db/</code>（schema / migration）</td><td><code>medallion_sets</code> テーブル + <code>folders.medallion_set_id</code> / <code>folders.medallion_layer</code> 列追加</td><td>P5</td></tr>
+          <tr><td><code>packages/shared/src/layers.ts</code>, <code>apps/worker/src/services/</code></td><td>層をフォルダ属性（セット + 層の表示ラベル）へ移行、gold ロックをノート単位「編集ロック」に一般化</td><td>P5</td></tr>
+          <tr><td><code>components/editor/LayerMenu.tsx</code>, <code>components/notes/</code></td><td>層メニュー → フォルダ層のメダル表示/割当 UI に置き換え、ノートの編集ロックトグル</td><td>P5</td></tr>
+          <tr><td><code>apps/worker/src/mcp/</code></td><td><code>set_edit_lock</code> ツール（解除は <code>confirm: true</code> 必須）、<code>unlock_gold_for_edit</code> / <code>list_notes_by_layer</code> 撤去、<code>medallion_*</code> ツール</td><td>P5</td></tr>
+        </tbody>
+      </table>
+
+      <h3>リスクと留意点</h3>
+      <ul>
+        <li><strong>既存ユーザーの暗黙 PARA 化を止めると API 挙動が変わる</strong>: <code>GET /api/para</code> の副作用除去は後方互換を壊す（呼べば必ずバケツができる契約だった）。MCP 経由で <code>para_list</code> を暗黙セットアップとして使う利用者がいないか確認し、changelog / マイグレーションで補う。</li>
+        <li><strong>編集ロックと層 UI の分離</strong>: メダリオン層を OFF にしてもノート単位の編集ロックは残る（層は表示ラベルのみのため）。ロック中ノートのバナーと解除導線は層トグルに依存させない。</li>
+        <li><strong>MCP 経由のロック解除</strong>: AI が解除できてしまうと「原本保全」が形骸化するため、解除は <code>confirm: true</code> パラメータ必須（サーバー側で強制可能な範囲）。承認 UX 自体は MCP クライアントのツール承認画面に依存し、クライアントが承認を求めない実装なら confirm 送信だけで通る点は限界として許容する（既存 <code>promote_note</code> と同水準）。</li>
+        <li><strong>オフラインキャッシュとの整合</strong>: <code>viewer</code>・設定ミラー（sessionStorage / localStorage）は <code>lib/offline-cache.ts</code> / <code>identity-lifecycle.ts</code> のライフサイクルに乗せ、ログアウト・キャッシュ削除時にミラーを消す。localStorage ヒントは共用 PC で他ユーザーの値が残り得るため、値内の <code>userId</code> 照合で不一致を破棄する（§2.3）。</li>
+        <li><strong>共有フォルダ内の PARA メニュー</strong>: 「完了してアーカイブ（PARA）」は owner 自身のコンテキストでのみ意味を持つ。現行も <code>canAdmin</code> + Projects 配下判定で絞っている（<code>home-page.ts:430-450</code>）が、フラグ条件を追加する際にこの判定を壊さない。</li>
+        <li><strong>複数スペースの一意性移行</strong>: <code>(owner_id, para_bucket)</code> 一意から <code>(owner_id, para_space_id, para_bucket)</code> 一意への変更は、既存行を default スペースにバックフィルしてから制約を張る順序が必要。スペース導入後に「ルートに直接作成」を選んだ場合は default スペースのバケツ名と衝突し得る点に注意（plan がスペース単位で判定するのでモーダルで検出できる）。</li>
+      </ul>
+    </section>
+
+    <!-- ================= 6. 付録 ================= -->
+    <section class="block" id="s6">
+      <h2 class="sec"><span class="num">6.</span>付録: コード参照表</h2>
+      <table>
+        <thead>
+          <tr><th>領域</th><th>ファイル</th><th>要点</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>ヘッダー骨格</td><td><code>apps/web/src/components/layout/AppHeader.tsx</code></td><td>3 カラム grid、actions/end スロット、ブレークポイント 900/640px</td></tr>
+          <tr><td>ヘッダー供給</td><td><code>apps/web/src/components/layout/AppShell.tsx:318-325</code></td><td><code>setHeader</code> の実体（actions/end/folder state）</td></tr>
+          <tr><td>編集ヘッダー内容</td><td><code>apps/web/src/pages/EditorPage.tsx:434-480, 892-963</code></td><td><code>EditorHeaderEnd</code> / <code>bindEditorHeader</code></td></tr>
+          <tr><td>ホームヘッダー内容</td><td><code>apps/web/src/pages/HomePage.tsx:74-154</code></td><td><code>DrivePlaceNav</code>（個人/共有/管理）+ 作成ボタン群</td></tr>
+          <tr><td>ボタン部品</td><td><code>apps/web/src/components/ui/HeaderButton.tsx</code>, <code>Menu.tsx</code>, <code>IconButton.tsx</code>, <code>Switch.tsx</code></td><td>ラベル非表示ルール、MenuPanel/MenuItem 既存部品</td></tr>
+          <tr><td>層</td><td><code>components/editor/LayerMenu.tsx</code>, <code>packages/shared/src/layers.ts</code>, <code>schema.sql</code> の <code>notes.layer</code> / <code>note_layer_events</code> / <code>gold_unlocked_until</code></td><td>現行: per-note bronze/silver/gold、昇格ゲート、gold ロック 30 分解除 → §2.6 で「フォルダのメダル表示 + 独立した編集ロック」に再設計（昇格機構は廃止）</td></tr>
+          <tr><td>フォルダ移動</td><td><code>components/editor/FolderPopover.tsx</code>, <code>pages/editor-page.ts</code> の <code>persistEditorFolder</code></td><td>パス入力 + blur 保存</td></tr>
+          <tr><td>リンク/履歴/共有</td><td><code>components/editor/LinksPanel.tsx</code>, <code>HistoryPanel.tsx</code>, <code>components/notes/ShareModal.tsx</code></td><td>右サイドパネル / モーダル / モーダル</td></tr>
+          <tr><td>presence</td><td><code>components/editor/PresenceBar.tsx</code></td><td>awareness アバター、&lt;640px 非表示</td></tr>
+          <tr><td>サイト公開</td><td><code>components/layout/SitePublishButton.tsx</code></td><td>記事ソース一致時のみ表示</td></tr>
+          <tr><td>PARA</td><td><code>packages/shared/src/move.ts:8-35</code>, <code>apps/worker/src/services/para.ts</code>, <code>routes/para.ts</code>, <code>components/notes/NoteTree.tsx:604-647</code>, <code>pages/home-page.ts:442-450</code></td><td><code>PARA_BUCKETS</code>、<code>para_bucket</code> 列（現行は owner ごと 1 ツリーのみ → §2.5 でスペース化）、<code>ensureParaBuckets</code>（暗黙採用）、<code>paraArchiveProject</code>（YYYY-MM- 前置 + move）</td></tr>
+          <tr><td>命名規則</td><td><code>packages/shared/src/schemes.ts</code>, <code>components/notes/SchemeDialog.tsx</code>, <code>components/notes/FolderCreateModal.tsx</code></td><td>jd / zettel、scheme 提案・resolve</td></tr>
+          <tr><td>wiki-link</td><td><code>lib/note-links.ts</code>, <code>lib/wikilink-complete.ts</code></td><td>outgoing/backlinks、<code>[[</code> 補完</td></tr>
+          <tr><td>検索</td><td><code>packages/shared/src/search-dsl.ts</code>, <code>components/search/SearchPalette.tsx</code>, <code>apps/worker/src/services/search.ts</code></td><td>DSL 演算子、FTS5、Ctrl+K パレット</td></tr>
+          <tr><td>設定</td><td><code>components/settings/SettingsLayout.tsx:15-32</code>, <code>pages/settings/*.tsx</code>, <code>lib/editor-tab.ts</code>, <code>lib/theme.ts</code>, <code>lib/editor-mode.ts</code></td><td>グループ構造、localStorage 設定パターン</td></tr>
+          <tr><td>フォルダ API</td><td><code>lib/api.ts:333-409</code>, <code>apps/worker/src/routes/folders.ts:279-453</code>, <code>services/access.ts:819-847</code></td><td>create/rename/move、冪等 <code>ensureFolderRow</code>（409 なし）</td></tr>
+          <tr><td>全体設計</td><td><code>docs/design.md</code>, <code>HANDOFF.md</code></td><td>アーキテクチャ、#108-115 の実装履歴</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</div>
+</body>
+</html>

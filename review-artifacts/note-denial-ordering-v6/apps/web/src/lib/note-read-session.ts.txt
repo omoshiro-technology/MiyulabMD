@@ -1,0 +1,305 @@
+import type { Note } from "@miyulabmd/shared";
+
+import { ApiCommunicationError, type ApiResult, fetchNote } from "./api.ts";
+import {
+  beginOfflineNoteRead,
+  isOfflineNoteReadCurrent,
+  openOfflineCache,
+  suspendOfflineCacheUser,
+} from "./offline-cache.ts";
+import type { ViewerContext } from "./viewer-context.ts";
+
+export type NoteReadResult =
+  | {
+      ok: true;
+      data: Note;
+      viewer: ViewerContext;
+      source: "network" | "cache";
+      cachedAt: number | null;
+    }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      viewer: ViewerContext;
+      source: "network";
+      cachedAt: null;
+      cacheWarning?: string;
+    };
+
+export type NoteReadSession = {
+  read(id: string): Promise<NoteReadResult>;
+  dispose(): void;
+};
+
+function snapshotViewer(viewer: ViewerContext): ViewerContext {
+  return {
+    cacheViewerId: viewer.cacheViewerId,
+    mode: viewer.mode,
+    user: viewer.user
+      ? {
+          displayName: viewer.user.displayName,
+          email: viewer.user.email,
+          id: viewer.user.id,
+        }
+      : null,
+  };
+}
+
+function isServerFailure(result: ApiResult<Note>): boolean {
+  return !result.ok && result.status >= 500 && result.status <= 599;
+}
+
+function isDenial(result: ApiResult<Note>): boolean {
+  return !result.ok && (result.status === 403 || result.status === 404);
+}
+
+function cachedReadResult(
+  cached: { note: Note; cachedAt: number },
+  viewer: ViewerContext,
+): NoteReadResult {
+  return {
+    cachedAt: cached.cachedAt,
+    data: cached.note,
+    ok: true,
+    source: "cache",
+    viewer: snapshotViewer(viewer),
+  };
+}
+
+function failedReadResult(
+  result: { error: string; status: number },
+  viewer: ViewerContext,
+  cacheWarning?: string,
+): NoteReadResult {
+  return {
+    cachedAt: null,
+    error: result.error,
+    ok: false,
+    source: "network",
+    status: result.status,
+    ...(cacheWarning ? { cacheWarning } : {}),
+    viewer: snapshotViewer(viewer),
+  };
+}
+
+async function persistNote(
+  cache: Awaited<ReturnType<typeof openOfflineCache>>,
+  note: Note,
+  signal: AbortSignal,
+  orderingToken: number,
+): Promise<void> {
+  try {
+    await cache.putNote(note, { orderingToken, signal });
+    await cache.clearNoteDenial(note.id, orderingToken);
+  } catch {
+    if (signal.aborted) {
+      throw signal.reason;
+    }
+    // Valid online data must not depend on offline storage.
+  }
+}
+
+export function createNoteReadSession(viewer: ViewerContext): NoteReadSession {
+  const capturedViewer = snapshotViewer(viewer);
+  const controller = new AbortController();
+  const { signal } = controller;
+  let cachePromise:
+    | Promise<Awaited<ReturnType<typeof openOfflineCache>> | null>
+    | undefined;
+  let disposed = false;
+  let cache: Awaited<ReturnType<typeof openOfflineCache>> | null = null;
+  let cacheOpenFailed = false;
+
+  const getCache = async () => {
+    if (!cachePromise) {
+      cachePromise = capturedViewer.cacheViewerId
+        ? openOfflineCache({
+            signal,
+            userId: capturedViewer.cacheViewerId,
+          }).then(
+            (openedCache) => {
+              if (signal.aborted) {
+                openedCache.close();
+                throw signal.reason;
+              }
+              return openedCache;
+            },
+            () => {
+              if (signal.aborted) {
+                throw signal.reason;
+              }
+              cacheOpenFailed = true;
+              return null;
+            },
+          )
+        : Promise.resolve(null);
+    }
+    const openedCache = await cachePromise;
+    if (openedCache) {
+      if (signal.aborted) {
+        openedCache.close();
+        throw signal.reason;
+      }
+      cache = openedCache;
+    }
+    return openedCache;
+  };
+
+  const readCachedNote = async (id: string) => {
+    const openedCache = await getCache();
+    if (!openedCache) {
+      return null;
+    }
+    try {
+      const cached = await openedCache.getNote(id);
+      if (signal.aborted) {
+        throw signal.reason;
+      }
+      return cached;
+    } catch {
+      if (signal.aborted) {
+        throw signal.reason;
+      }
+      // Offline storage is optional; a read error is a cache miss.
+      return null;
+    }
+  };
+
+  const communicationFallback = async (id: string, error: unknown) => {
+    if (signal.aborted) {
+      throw signal.reason;
+    }
+    if (!(error instanceof ApiCommunicationError)) {
+      throw error;
+    }
+    const cached = await readCachedNote(id);
+    if (cached) {
+      return cachedReadResult(cached, capturedViewer);
+    }
+    throw error;
+  };
+
+  const serverFallback = async (id: string, result: ApiResult<Note>) => {
+    if (!isServerFailure(result)) {
+      return null;
+    }
+    const cached = await readCachedNote(id);
+    return cached ? cachedReadResult(cached, capturedViewer) : null;
+  };
+
+  const readNetworkNote = async (
+    note: Note,
+    orderingToken: number,
+  ): Promise<NoteReadResult> => {
+    if (signal.aborted) {
+      throw signal.reason;
+    }
+    const openedCache = await getCache();
+    if (openedCache) {
+      await persistNote(openedCache, note, signal, orderingToken);
+    }
+    if (signal.aborted) {
+      throw signal.reason;
+    }
+    if (
+      capturedViewer.cacheViewerId &&
+      !isOfflineNoteReadCurrent(
+        capturedViewer.cacheViewerId,
+        note.id,
+        orderingToken,
+      )
+    ) {
+      throw new DOMException("Note read superseded by denial");
+    }
+    return {
+      cachedAt: null,
+      data: note,
+      ok: true,
+      source: "network",
+      viewer: snapshotViewer(capturedViewer),
+    };
+  };
+
+  const fetchWithFallback = async (
+    id: string,
+  ): Promise<ApiResult<Note> | NoteReadResult> => {
+    let result: ApiResult<Note>;
+    try {
+      result = await fetchNote(id, { signal });
+    } catch (error) {
+      return await communicationFallback(id, error);
+    }
+    const fallback = await serverFallback(id, result);
+    if (fallback) {
+      return fallback;
+    }
+    return result;
+  };
+
+  return {
+    dispose() {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      controller.abort();
+      cache?.close();
+      cache = null;
+    },
+
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: terminal publication and denial guards are intentionally explicit.
+    async read(id) {
+      if (signal.aborted) {
+        throw signal.reason;
+      }
+      const orderingToken = capturedViewer.cacheViewerId
+        ? beginOfflineNoteRead(capturedViewer.cacheViewerId, id)
+        : 0;
+      const result = await fetchWithFallback(id);
+      let published: NoteReadResult;
+      if (result.ok && "source" in result) {
+        published = result;
+      } else if (result.ok) {
+        published = await readNetworkNote(result.data, orderingToken);
+      } else {
+        if (signal.aborted) {
+          throw signal.reason;
+        }
+        let cacheWarning: string | undefined;
+        if (isDenial(result) && capturedViewer.cacheViewerId) {
+          try {
+            const openedCache = await getCache();
+            if (openedCache) {
+              await openedCache.denyNote(id);
+            } else if (cacheOpenFailed) {
+              suspendOfflineCacheUser(capturedViewer.cacheViewerId);
+              cacheWarning =
+                "キャッシュを無効化できませんでした。安全のためキャッシュをクリアしてください。";
+            }
+          } catch {
+            suspendOfflineCacheUser(capturedViewer.cacheViewerId);
+            cacheWarning =
+              "キャッシュの無効化を保存できませんでした。安全のためキャッシュをクリアしてください。";
+          }
+        }
+        published = failedReadResult(result, capturedViewer, cacheWarning);
+      }
+      if (signal.aborted) {
+        throw signal.reason;
+      }
+      if (
+        published.ok &&
+        capturedViewer.cacheViewerId &&
+        !isOfflineNoteReadCurrent(
+          capturedViewer.cacheViewerId,
+          id,
+          orderingToken,
+        )
+      ) {
+        throw new DOMException("Note read superseded by denial");
+      }
+      return published;
+    },
+  };
+}

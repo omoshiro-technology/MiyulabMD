@@ -9,7 +9,9 @@ import {
   type EffectiveAccess,
   evaluateAccess,
   type FolderAccess,
+  type FolderChildrenResult,
   type FolderCrumb,
+  type FolderEntry,
   type FolderRecord,
   folderAncestors,
   folderContains,
@@ -21,7 +23,6 @@ import {
   type PermissionFlags,
   presetFromScopes,
   ROOT_SCOPES,
-  rewriteFolderPrefix,
   type SessionUser,
 } from "@miyulabmd/shared";
 
@@ -74,6 +75,10 @@ export type FolderRow = {
   owner_id: string;
   folder: string;
   created_at: number;
+  scheme?: string | null;
+  scheme_id?: string | null;
+  scheme_title?: string | null;
+  scheme_root?: string | null;
 };
 
 function parseScope(value: string | null | undefined): AccessScope | null {
@@ -104,6 +109,317 @@ export function normalizeGrantEmail(email: string): string | null {
     return null;
   }
   return normalized;
+}
+
+/**
+ * 1リクエスト内でノート一覧を組み立てるためのプリロード済みアクセスデータ。
+ * folder_policies / access_grants / folders をオーナー単位で一括取得し、
+ * ノート毎の per-row クエリ(N+1)を避ける。
+ */
+export type AccessSnapshot = {
+  /** owner_id -> folder path -> policy */
+  policies: Map<
+    string,
+    Map<string, { readScope: AccessScope; writeScope: AccessScope }>
+  >;
+  /** owner_id -> raw grant rows (target_kind/target_key 付き) */
+  grants: Map<string, SnapshotGrantRow[]>;
+  /** owner_id -> folder path -> row */
+  foldersByPath: Map<string, Map<string, FolderRow>>;
+  /** folder id -> row */
+  foldersById: Map<string, FolderRow>;
+};
+
+type SnapshotGrantRow = GrantRow & {
+  owner_id: string;
+  target_kind: string;
+  target_key: string;
+};
+
+/** D1 のバインド上限(100)を下回るオーナー単位のチャンク幅。 */
+const SNAPSHOT_OWNER_CHUNK = 50;
+
+export async function buildAccessSnapshot(
+  env: Env,
+  ownerIds: readonly string[],
+): Promise<AccessSnapshot> {
+  const snapshot: AccessSnapshot = {
+    foldersById: new Map(),
+    foldersByPath: new Map(),
+    grants: new Map(),
+    policies: new Map(),
+  };
+  const unique = [...new Set(ownerIds)];
+  if (unique.length === 0) {
+    return snapshot;
+  }
+  // D1 のバインド上限(100)を超えないようオーナーをチャンクに分けて取得する。
+  const chunks: string[][] = [];
+  for (let i = 0; i < unique.length; i += SNAPSHOT_OWNER_CHUNK) {
+    chunks.push(unique.slice(i, i + SNAPSHOT_OWNER_CHUNK));
+  }
+  const inClause = (owners: string[]) => owners.map(() => "?").join(", ");
+  const runChunked = async <T>(
+    query: (owners: string[]) => Promise<{ results: T[] }>,
+  ): Promise<T[]> => {
+    const results = await Promise.all(chunks.map((owners) => query(owners)));
+    return results.flatMap((result) => result.results ?? []);
+  };
+  const [policyRows, grantRows, folderRows] = await Promise.all([
+    runChunked<FolderPolicyRow>((owners) =>
+      db(env)
+        .prepare(
+          `SELECT owner_id, folder, read_scope, write_scope
+           FROM folder_policies WHERE owner_id IN (${inClause(owners)})`,
+        )
+        .bind(...owners)
+        .all<FolderPolicyRow>(),
+    ),
+    runChunked<SnapshotGrantRow>((owners) =>
+      db(env)
+        .prepare(
+          `SELECT owner_id, target_kind, target_key, email, user_id, can_write
+           FROM access_grants WHERE owner_id IN (${inClause(owners)}) ORDER BY email`,
+        )
+        .bind(...owners)
+        .all<SnapshotGrantRow>(),
+    ),
+    runChunked<FolderRow>((owners) =>
+      db(env)
+        .prepare(
+          `SELECT id, owner_id, folder, scheme, scheme_id, scheme_title, scheme_root, created_at
+           FROM folders WHERE owner_id IN (${inClause(owners)})`,
+        )
+        .bind(...owners)
+        .all<FolderRow>(),
+    ),
+  ]);
+
+  for (const row of policyRows) {
+    indexPolicyRow(snapshot, row);
+  }
+  for (const row of grantRows) {
+    const list = snapshot.grants.get(row.owner_id);
+    if (list) {
+      list.push(row);
+    } else {
+      snapshot.grants.set(row.owner_id, [row]);
+    }
+  }
+  for (const row of folderRows) {
+    indexFolderRow(snapshot, row);
+  }
+  return snapshot;
+}
+
+function indexPolicyRow(snapshot: AccessSnapshot, row: FolderPolicyRow): void {
+  const readScope = parseScope(row.read_scope);
+  const writeScope = parseScope(row.write_scope);
+  if (!(readScope && writeScope)) {
+    return;
+  }
+  let byFolder = snapshot.policies.get(row.owner_id);
+  if (!byFolder) {
+    byFolder = new Map();
+    snapshot.policies.set(row.owner_id, byFolder);
+  }
+  byFolder.set(row.folder, {
+    readScope,
+    writeScope: clampWriteScope(readScope, writeScope),
+  });
+}
+
+function indexFolderRow(snapshot: AccessSnapshot, row: FolderRow): void {
+  let byPath = snapshot.foldersByPath.get(row.owner_id);
+  if (!byPath) {
+    byPath = new Map();
+    snapshot.foldersByPath.set(row.owner_id, byPath);
+  }
+  byPath.set(row.folder, row);
+  snapshot.foldersById.set(row.id, row);
+}
+
+const EMPTY_POLICY_MAP: Map<
+  string,
+  { readScope: AccessScope; writeScope: AccessScope }
+> = new Map();
+
+/** loadGrants と同じ結果をスナップショットから組み立てる。 */
+function snapshotGrants(
+  snapshot: AccessSnapshot,
+  ownerId: string,
+  noteId: string | null,
+  folders: string[],
+): AccessGrant[] {
+  const rows = snapshot.grants.get(ownerId);
+  if (!rows) {
+    return [];
+  }
+  const folderKeys = folders.length > 0 ? folders : [""];
+  const folderSet = new Set(folderKeys);
+  const seen = new Map<string, AccessGrant>();
+  for (const row of rows) {
+    const matches =
+      row.target_kind === "note"
+        ? noteId !== null && row.target_key === noteId
+        : row.target_kind === "folder" && folderSet.has(row.target_key);
+    if (!matches) {
+      continue;
+    }
+    const grant = rowToGrant(row);
+    const current = seen.get(grant.email);
+    if (!current || (grant.canWrite && !current.canWrite)) {
+      seen.set(grant.email, grant);
+    }
+  }
+  return [...seen.values()].sort((a, b) => (a.email < b.email ? -1 : 1));
+}
+
+/** resolveNoteAccess と同じ結果をスナップショットから同期的に組み立てる。 */
+export function resolveNoteAccessSnapshot(
+  env: Env,
+  note: NoteAccessFields,
+  user: SessionUser | null | undefined,
+  snapshot: AccessSnapshot,
+): NoteAccess {
+  const inherit = note.readScope === null && note.writeScope === null;
+  const ancestors = folderAncestors(note.folder);
+  const policies = snapshot.policies.get(note.ownerId) ?? EMPTY_POLICY_MAP;
+  const grants = snapshotGrants(snapshot, note.ownerId, note.id, ancestors);
+
+  let source: AccessSource = "note";
+  let sourceFolder: string | null = null;
+  let effectiveReadScope: AccessScope;
+  let effectiveWriteScope: AccessScope;
+
+  if (!inherit && note.readScope && note.writeScope) {
+    effectiveReadScope = note.readScope;
+    effectiveWriteScope = clampWriteScope(note.readScope, note.writeScope);
+  } else {
+    const resolved = resolveFromPolicies(note.folder, policies);
+    effectiveReadScope = resolved.effectiveReadScope;
+    effectiveWriteScope = resolved.effectiveWriteScope;
+    source = resolved.source;
+    sourceFolder = resolved.sourceFolder;
+  }
+
+  const actor = actorFromUser(user, note.ownerId);
+  const grant = grantForActor(grants, actor);
+  const flags = applyInstanceFlags(
+    evaluateAccess(effectiveReadScope, effectiveWriteScope, actor, grant),
+    actor,
+    env,
+  );
+
+  return {
+    effectiveReadScope,
+    effectiveWriteScope,
+    flags,
+    grants,
+    inherit,
+    readScope: note.readScope,
+    source,
+    sourceFolder,
+    writeScope: note.writeScope,
+  };
+}
+
+function folderEffectiveSnapshot(
+  ownerId: string,
+  folder: string,
+  snapshot: AccessSnapshot,
+): FolderPolicyResolved {
+  if (folder === "") {
+    return {
+      effectiveReadScope: ROOT_SCOPES.readScope,
+      effectiveWriteScope: ROOT_SCOPES.writeScope,
+      folder: "",
+      grants: [],
+      inherit: false,
+      locked: true,
+      readScope: ROOT_SCOPES.readScope,
+      source: "folder",
+      sourceFolder: "",
+      writeScope: ROOT_SCOPES.writeScope,
+    };
+  }
+  const ancestors = folderAncestors(folder);
+  const policies = snapshot.policies.get(ownerId) ?? EMPTY_POLICY_MAP;
+  const grants = snapshotGrants(snapshot, ownerId, null, ancestors);
+  const stored = policies.get(folder);
+  const inherit = !stored;
+  const resolved = stored
+    ? {
+        effectiveReadScope: stored.readScope,
+        effectiveWriteScope: stored.writeScope,
+        source: "folder" as const,
+        sourceFolder: folder,
+      }
+    : resolveFromPolicies(folderAncestors(folder).at(1) ?? "", policies);
+
+  return {
+    effectiveReadScope: resolved.effectiveReadScope,
+    effectiveWriteScope: resolved.effectiveWriteScope,
+    folder,
+    grants,
+    inherit,
+    locked: false,
+    readScope: stored?.readScope ?? null,
+    source: stored ? "folder" : resolved.source,
+    sourceFolder: stored ? folder : resolved.sourceFolder,
+    writeScope: stored?.writeScope ?? null,
+  };
+}
+
+function folderAccessStateFromEffective(
+  env: Env,
+  effective: FolderPolicyResolved,
+  ownerId: string,
+  user: SessionUser | null | undefined,
+): FolderPolicyResolved & { flags: PermissionFlags } {
+  const actor = actorFromUser(user, ownerId);
+  const grant = grantForActor(effective.grants, actor);
+  const flags = applyInstanceFlags(
+    evaluateAccess(
+      effective.effectiveReadScope,
+      effective.effectiveWriteScope,
+      actor,
+      grant,
+    ),
+    actor,
+    env,
+  );
+  return { ...effective, flags };
+}
+
+function folderAccessStateSnapshot(
+  env: Env,
+  ownerId: string,
+  folder: string,
+  user: SessionUser | null | undefined,
+  snapshot: AccessSnapshot,
+): FolderPolicyResolved & { flags: PermissionFlags } {
+  return folderAccessStateFromEffective(
+    env,
+    folderEffectiveSnapshot(ownerId, folder, snapshot),
+    ownerId,
+    user,
+  );
+}
+
+/** folderDiscoveryAllowed と同じ結果をスナップショットから返す。 */
+export function folderDiscoveryAllowedSnapshot(
+  env: Env,
+  ownerId: string,
+  folder: string,
+  user: SessionUser | null | undefined,
+  snapshot: AccessSnapshot,
+): boolean {
+  return canDiscoverAccess(
+    folderAccessStateSnapshot(env, ownerId, folder, user, snapshot),
+    ownerId,
+    user,
+  );
 }
 
 async function loadFolderPolicies(
@@ -283,7 +599,7 @@ export async function getFolderById(
   return (
     (await db(env)
       .prepare(
-        "SELECT id, owner_id, folder, created_at FROM folders WHERE id = ?",
+        "SELECT id, owner_id, folder, scheme, scheme_id, scheme_title, scheme_root, created_at FROM folders WHERE id = ?",
       )
       .bind(id)
       .first<FolderRow>()) ?? null
@@ -298,7 +614,7 @@ export async function getFolderByPath(
   return (
     (await db(env)
       .prepare(
-        "SELECT id, owner_id, folder, created_at FROM folders WHERE owner_id = ? AND folder = ?",
+        "SELECT id, owner_id, folder, scheme, scheme_id, scheme_title, scheme_root, created_at FROM folders WHERE owner_id = ? AND folder = ?",
       )
       .bind(ownerId, folder)
       .first<FolderRow>()) ?? null
@@ -380,21 +696,12 @@ async function loadFolderAccessState(
   ownerId: string,
   folder: string,
   user?: SessionUser | null,
+  snapshot?: AccessSnapshot,
 ): Promise<FolderPolicyResolved & { flags: PermissionFlags }> {
-  const effective = await loadFolderEffective(env, ownerId, folder);
-  const actor = actorFromUser(user, ownerId);
-  const grant = grantForActor(effective.grants, actor);
-  const flags = applyInstanceFlags(
-    evaluateAccess(
-      effective.effectiveReadScope,
-      effective.effectiveWriteScope,
-      actor,
-      grant,
-    ),
-    actor,
-    env,
-  );
-  return { ...effective, flags };
+  const effective = snapshot
+    ? folderEffectiveSnapshot(ownerId, folder, snapshot)
+    : await loadFolderEffective(env, ownerId, folder);
+  return folderAccessStateFromEffective(env, effective, ownerId, user);
 }
 
 export async function folderViewFlags(
@@ -402,8 +709,10 @@ export async function folderViewFlags(
   ownerId: string,
   folder: string,
   user?: SessionUser | null,
+  snapshot?: AccessSnapshot,
 ): Promise<PermissionFlags> {
-  return (await loadFolderAccessState(env, ownerId, folder, user)).flags;
+  return (await loadFolderAccessState(env, ownerId, folder, user, snapshot))
+    .flags;
 }
 
 export async function folderDiscoveryAllowed(
@@ -419,21 +728,38 @@ export async function folderDiscoveryAllowed(
   );
 }
 
+function snapshotFolderRow(
+  snapshot: AccessSnapshot | undefined,
+  ownerId: string,
+  folder: string,
+): FolderRow | null {
+  return snapshot?.foldersByPath.get(ownerId)?.get(folder) ?? null;
+}
+
 async function visibleCrumbs(
   env: Env,
   ownerId: string,
   folder: string,
   user?: SessionUser | null,
+  snapshot?: AccessSnapshot,
 ): Promise<FolderCrumb[]> {
   const parts = folder.split("/").filter(Boolean);
   const crumbs: FolderCrumb[] = [];
   for (let i = 1; i <= parts.length; i += 1) {
     const path = parts.slice(0, i).join("/");
-    const rec = await getFolderByPath(env, ownerId, path);
+    const rec = snapshot
+      ? snapshotFolderRow(snapshot, ownerId, path)
+      : await getFolderByPath(env, ownerId, path);
     if (!rec) {
       continue;
     }
-    const access = await loadFolderAccessState(env, ownerId, path, user);
+    const access = await loadFolderAccessState(
+      env,
+      ownerId,
+      path,
+      user,
+      snapshot,
+    );
     // 自分自身の URL は既知。祖先の URL は別途発見可能な場合だけ返す。
     if (
       access.flags.canView &&
@@ -447,62 +773,108 @@ async function visibleCrumbs(
   return crumbs;
 }
 
+async function projectVisibleChildFolder(
+  env: Env,
+  ownerId: string,
+  row: FolderRow,
+  parentFolder: string,
+  currentId: string | null,
+  user: SessionUser | null | undefined,
+  isOwner: boolean,
+  snapshot?: AccessSnapshot,
+): Promise<FolderRecord | null> {
+  if (!row.folder || parentFolderPath(row.folder) !== parentFolder) {
+    return null;
+  }
+  const effective = snapshot
+    ? folderEffectiveSnapshot(ownerId, row.folder, snapshot)
+    : await loadFolderEffective(env, ownerId, row.folder);
+  const actor = actorFromUser(user, ownerId);
+  const grant = grantForActor(effective.grants, actor);
+  const flags = applyInstanceFlags(
+    evaluateAccess(
+      effective.effectiveReadScope,
+      effective.effectiveWriteScope,
+      actor,
+      grant,
+    ),
+    actor,
+    env,
+  );
+  if (!flags.canView) {
+    return null;
+  }
+  // 既知のフォルダから継承した子は辿れるが、別のリンク限定設定は列挙しない。
+  const inheritsKnownFolder =
+    effective.sourceFolder !== null &&
+    folderContains(effective.sourceFolder, parentFolder);
+  if (
+    !(
+      inheritsKnownFolder ||
+      canDiscoverAccess({ ...effective, flags }, ownerId, user)
+    )
+  ) {
+    return null;
+  }
+  return {
+    id: row.id,
+    name: folderName(row.folder),
+    parentId: currentId,
+    readScope: effective.effectiveReadScope,
+    writeScope: effective.effectiveWriteScope,
+    ...(isOwner
+      ? {
+          folder: row.folder,
+          scheme: row.scheme ?? null,
+          schemeId: row.scheme_id ?? null,
+          schemeTitle: row.scheme_title ?? null,
+        }
+      : {}),
+  };
+}
+
+function snapshotFolderRows(
+  snapshot: AccessSnapshot | undefined,
+  ownerId: string,
+): FolderRow[] {
+  return [...(snapshot?.foldersByPath.get(ownerId)?.values() ?? [])];
+}
+
 async function listVisibleChildren(
   env: Env,
   ownerId: string,
   folder: string,
   currentId: string | null,
   user?: SessionUser | null,
+  snapshot?: AccessSnapshot,
 ): Promise<FolderRecord[]> {
   const isOwner = user?.id === ownerId;
-  const rows = await db(env)
-    .prepare(
-      "SELECT id, owner_id, folder, created_at FROM folders WHERE owner_id = ? ORDER BY folder",
-    )
-    .bind(ownerId)
-    .all<FolderRow>();
+  const rows = snapshot
+    ? snapshotFolderRows(snapshot, ownerId)
+    : ((
+        await db(env)
+          .prepare(
+            "SELECT id, owner_id, folder, scheme, scheme_id, scheme_title, scheme_root, created_at FROM folders WHERE owner_id = ? ORDER BY folder",
+          )
+          .bind(ownerId)
+          .all<FolderRow>()
+      ).results ?? []);
 
   const children: FolderRecord[] = [];
-  for (const row of rows.results ?? []) {
-    if (!row.folder || parentFolderPath(row.folder) !== folder) {
-      continue;
-    }
-    const effective = await loadFolderEffective(env, ownerId, row.folder);
-    const actor = actorFromUser(user, ownerId);
-    const grant = grantForActor(effective.grants, actor);
-    const flags = applyInstanceFlags(
-      evaluateAccess(
-        effective.effectiveReadScope,
-        effective.effectiveWriteScope,
-        actor,
-        grant,
-      ),
-      actor,
+  for (const row of rows) {
+    const child = await projectVisibleChildFolder(
       env,
+      ownerId,
+      row,
+      folder,
+      currentId,
+      user,
+      isOwner,
+      snapshot,
     );
-    if (!flags.canView) {
-      continue;
+    if (child) {
+      children.push(child);
     }
-    // 既知のフォルダから継承した子は辿れるが、別のリンク限定設定は列挙しない。
-    const inheritsKnownFolder =
-      effective.sourceFolder !== null &&
-      folderContains(effective.sourceFolder, folder);
-    if (
-      !(
-        inheritsKnownFolder ||
-        canDiscoverAccess({ ...effective, flags }, ownerId, user)
-      )
-    ) {
-      continue;
-    }
-    children.push({
-      id: row.id,
-      name: folderName(row.folder),
-      parentId: currentId,
-      readScope: effective.effectiveReadScope,
-      writeScope: effective.effectiveWriteScope,
-      ...(isOwner ? { folder: row.folder } : {}),
-    });
   }
   return children.sort((a, b) => a.name.localeCompare(b.name, "ja"));
 }
@@ -529,28 +901,97 @@ function presentFolderAccess(
   };
 }
 
+function snapshotAwareFolderId(
+  env: Env,
+  snap: AccessSnapshot | undefined,
+  ownerId: string,
+  folder: string,
+): Promise<string | null> {
+  const id = snapshotFolderRow(snap, ownerId, folder)?.id;
+  return id === undefined
+    ? ensureFolderRow(env, ownerId, folder)
+    : Promise.resolve(id);
+}
+
+function snapshotAwareFolderRow(
+  env: Env,
+  snap: AccessSnapshot | undefined,
+  ownerId: string,
+  folder: string,
+): Promise<FolderRow | null> {
+  return snap
+    ? Promise.resolve(snapshotFolderRow(snap, ownerId, folder))
+    : getFolderByPath(env, ownerId, folder);
+}
+
+/** スナップショットに無いフォルダ行は ensureFolderRow が作成し得るため取り直す。 */
+async function ensureSnapshotCoversFolder(
+  env: Env,
+  snap: AccessSnapshot | undefined,
+  ownerId: string,
+  folder: string,
+): Promise<AccessSnapshot | undefined> {
+  if (!snap || snapshotFolderRow(snap, ownerId, folder)) {
+    return snap;
+  }
+  await ensureFolderRow(env, ownerId, folder);
+  return buildAccessSnapshot(env, [ownerId]);
+}
+
+function folderAccessParentId(
+  env: Env,
+  snap: AccessSnapshot | undefined,
+  ownerId: string,
+  folder: string,
+  crumbs: FolderCrumb[],
+  isOwner: boolean,
+): Promise<string | null> {
+  if (folder && crumbs.length >= 2) {
+    return Promise.resolve(crumbs.at(-2)?.id ?? null);
+  }
+  if (!(folder && isOwner)) {
+    return Promise.resolve(null);
+  }
+  return snapshotAwareFolderId(env, snap, ownerId, "");
+}
+
 export async function resolveFolderAccess(
   env: Env,
   ownerId: string,
   folder: string,
   user?: SessionUser | null,
+  snapshot?: AccessSnapshot,
 ): Promise<FolderAccess> {
+  const snap = await ensureSnapshotCoversFolder(env, snapshot, ownerId, folder);
   const { flags, ...effective } = await loadFolderAccessState(
     env,
     ownerId,
     folder,
     user,
+    snap,
   );
-  const id = await ensureFolderRow(env, ownerId, folder);
-  const crumbs = folder ? await visibleCrumbs(env, ownerId, folder, user) : [];
+  const id = await snapshotAwareFolderId(env, snap, ownerId, folder);
+  const crumbs = folder
+    ? await visibleCrumbs(env, ownerId, folder, user, snap)
+    : [];
   const isOwner = user?.id === ownerId;
-  let parentId: string | null = null;
-  if (folder && crumbs.length >= 2) {
-    parentId = crumbs.at(-2)?.id ?? null;
-  } else if (folder && isOwner) {
-    parentId = await ensureFolderRow(env, ownerId, "");
-  }
-  const children = await listVisibleChildren(env, ownerId, folder, id, user);
+  const parentId = await folderAccessParentId(
+    env,
+    snap,
+    ownerId,
+    folder,
+    crumbs,
+    isOwner,
+  );
+  const children = await listVisibleChildren(
+    env,
+    ownerId,
+    folder,
+    id,
+    user,
+    snap,
+  );
+  const row = await snapshotAwareFolderRow(env, snap, ownerId, folder);
 
   return presentFolderAccess(
     {
@@ -561,10 +1002,259 @@ export async function resolveFolderAccess(
       id,
       name: folder ? folderName(folder) : MY_DRIVE_NAME,
       parentId,
+      scheme: row?.scheme ?? null,
+      schemeId: row?.scheme_id ?? null,
+      schemeTitle: row?.scheme_title ?? null,
       ...(isOwner ? { folder } : { folder: undefined, sourceFolder: null }),
     },
     isOwner,
   );
+}
+
+const FOLDER_ENTRIES_DEFAULT_LIMIT = 50;
+const FOLDER_ENTRIES_MAX_LIMIT = 200;
+
+type FolderEntryNoteRow = {
+  id: string;
+  owner_id: string;
+  title: string;
+  folder: string;
+  read_scope: string | null;
+  write_scope: string | null;
+  updated_at: number;
+};
+
+function decodeFolderEntriesCursor(cursor: string | undefined): number {
+  if (!cursor) {
+    return 0;
+  }
+  const offset = Number(cursor);
+  return Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+}
+
+function folderEntryOf(
+  record: FolderRecord,
+  row: FolderRow,
+  noteCounts: Map<string, number>,
+  isOwner: boolean,
+): FolderEntry {
+  return {
+    id: record.id,
+    name: record.name,
+    parentId: record.parentId,
+    type: "folder",
+    updatedAt: row.created_at,
+    ...(isOwner
+      ? {
+          noteCount: noteCounts.get(row.id) ?? 0,
+          scheme: row.scheme ?? null,
+          schemeId: row.scheme_id ?? null,
+          schemeTitle: row.scheme_title ?? null,
+        }
+      : {}),
+  };
+}
+
+async function visibleChildFolders(
+  env: Env,
+  ownerId: string,
+  rows: FolderRow[],
+  folder: string,
+  currentId: string | null,
+  user: SessionUser | null | undefined,
+  isOwner: boolean,
+  snapshot?: AccessSnapshot,
+): Promise<{ row: FolderRow; record: FolderRecord }[]> {
+  const children: { row: FolderRow; record: FolderRecord }[] = [];
+  for (const row of rows) {
+    const record = await projectVisibleChildFolder(
+      env,
+      ownerId,
+      row,
+      folder,
+      currentId,
+      user,
+      isOwner,
+      snapshot,
+    );
+    if (record) {
+      children.push({ record, row });
+    }
+  }
+  return children;
+}
+
+function childNoteCounts(
+  noteFolders: { folder: string }[],
+  children: { row: FolderRow }[],
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const { folder: noteFolder } of noteFolders) {
+    for (const child of children) {
+      if (folderContains(child.row.folder, noteFolder)) {
+        counts.set(child.row.id, (counts.get(child.row.id) ?? 0) + 1);
+      }
+    }
+  }
+  return counts;
+}
+
+async function noteEntryVisible(
+  env: Env,
+  folder: string,
+  row: FolderEntryNoteRow,
+  ownerId: string,
+  user?: SessionUser | null,
+  snapshot?: AccessSnapshot,
+): Promise<boolean> {
+  const fields = {
+    folder: row.folder ?? "",
+    id: row.id,
+    ownerId: row.owner_id,
+    readScope: parseScope(row.read_scope),
+    writeScope: parseScope(row.write_scope),
+  };
+  const access = snapshot
+    ? resolveNoteAccessSnapshot(env, fields, user, snapshot)
+    : await resolveNoteAccess(env, fields, user);
+  if (!access.flags.canView) {
+    return false;
+  }
+  const inheritsKnownFolder =
+    access.sourceFolder !== null && folderContains(access.sourceFolder, folder);
+  return inheritsKnownFolder || canDiscoverAccess(access, ownerId, user);
+}
+
+async function loadFolderEntryData(
+  env: Env,
+  ownerId: string,
+  folder: string,
+  isOwner: boolean,
+  snapshot: AccessSnapshot | undefined,
+): Promise<{
+  folderRows: FolderRow[];
+  noteRows: FolderEntryNoteRow[];
+  noteFolderRows: { folder: string }[];
+}> {
+  const [noteRows, noteFolderRows, folderRows] = await Promise.all([
+    db(env)
+      .prepare(
+        `SELECT id, owner_id, title, folder, read_scope, write_scope, updated_at
+           FROM notes WHERE owner_id = ? AND folder = ?`,
+      )
+      .bind(ownerId, folder)
+      .all<FolderEntryNoteRow>(),
+    isOwner
+      ? db(env)
+          .prepare(
+            "SELECT folder FROM notes WHERE owner_id = ? AND folder != ''",
+          )
+          .bind(ownerId)
+          .all<{ folder: string }>()
+      : Promise.resolve(null),
+    snapshot
+      ? Promise.resolve(null)
+      : db(env)
+          .prepare(
+            "SELECT id, owner_id, folder, scheme, scheme_id, scheme_title, scheme_root, created_at FROM folders WHERE owner_id = ? ORDER BY folder",
+          )
+          .bind(ownerId)
+          .all<FolderRow>(),
+  ]);
+  return {
+    folderRows: snapshot
+      ? snapshotFolderRows(snapshot, ownerId)
+      : (folderRows?.results ?? []),
+    noteFolderRows: noteFolderRows?.results ?? [],
+    noteRows: noteRows.results ?? [],
+  };
+}
+
+/** 直下の子フォルダとノートを1レスポンスで返す。発見可能性は resolveFolderAccess と同じ規則。 */
+export async function listFolderChildren(
+  env: Env,
+  ownerId: string,
+  folder: string,
+  currentId: string | null,
+  user?: SessionUser | null,
+  options: { cursor?: string; limit?: number } = {},
+  snapshot?: AccessSnapshot,
+): Promise<FolderChildrenResult> {
+  const requested = options.limit ?? FOLDER_ENTRIES_DEFAULT_LIMIT;
+  const limit = Number.isFinite(requested)
+    ? Math.min(Math.max(Math.trunc(requested), 1), FOLDER_ENTRIES_MAX_LIMIT)
+    : FOLDER_ENTRIES_DEFAULT_LIMIT;
+  const offset = decodeFolderEntriesCursor(options.cursor);
+  const isOwner = user?.id === ownerId;
+
+  const data = await loadFolderEntryData(
+    env,
+    ownerId,
+    folder,
+    isOwner,
+    snapshot,
+  );
+
+  const children = await visibleChildFolders(
+    env,
+    ownerId,
+    data.folderRows,
+    folder,
+    currentId,
+    user,
+    isOwner,
+    snapshot,
+  );
+
+  const noteCounts = isOwner
+    ? childNoteCounts(data.noteFolderRows, children)
+    : new Map<string, number>();
+
+  const entries: FolderEntry[] = children.map(({ record, row }) =>
+    folderEntryOf(record, row, noteCounts, isOwner),
+  );
+  for (const row of data.noteRows) {
+    if (
+      isOwner ||
+      (await noteEntryVisible(env, folder, row, ownerId, user, snapshot))
+    ) {
+      entries.push({
+        id: row.id,
+        title: row.title,
+        type: "note",
+        updatedAt: row.updated_at,
+      });
+    }
+  }
+
+  entries.sort((a, b) => {
+    if (a.type !== b.type) {
+      return a.type === "folder" ? -1 : 1;
+    }
+    const byName = (a.type === "folder" ? a.name : a.title).localeCompare(
+      b.type === "folder" ? b.name : b.title,
+      "ja",
+    );
+    return byName === 0 ? a.id.localeCompare(b.id) : byName;
+  });
+
+  const page = entries.slice(offset, offset + limit);
+  // 非オーナーには resolveFolderAccess の crumbs と同じ規則で、
+  // 発見可能な祖先の suffix だけを返す。
+  const path = isOwner
+    ? folder.split("/").filter(Boolean)
+    : (await visibleCrumbs(env, ownerId, folder, user, snapshot)).map(
+        (crumb) => crumb.name,
+      );
+  return {
+    entries: page,
+    folder: {
+      id: currentId,
+      name: folder ? folderName(folder) : MY_DRIVE_NAME,
+      path,
+    },
+    nextCursor: offset + limit < entries.length ? String(offset + limit) : null,
+  };
 }
 
 export async function ensureFolderRow(
@@ -603,7 +1293,7 @@ export async function listOwnedFolders(
 ): Promise<FolderRecord[]> {
   const rows = await db(env)
     .prepare(
-      "SELECT id, owner_id, folder, created_at FROM folders WHERE owner_id = ? ORDER BY folder",
+      "SELECT id, owner_id, folder, scheme, scheme_id, scheme_title, scheme_root, created_at FROM folders WHERE owner_id = ? ORDER BY folder",
     )
     .bind(ownerId)
     .all<FolderRow>();
@@ -615,6 +1305,9 @@ export async function listOwnedFolders(
     parentId: isDriveRootPath(row.folder)
       ? null
       : (byPath.get(parentFolderPath(row.folder))?.id ?? null),
+    scheme: row.scheme ?? null,
+    schemeId: row.scheme_id ?? null,
+    schemeTitle: row.scheme_title ?? null,
   }));
 }
 
@@ -625,6 +1318,10 @@ export async function listSharedFolders(
   const grants = await listSharedFolderCandidates(env, user);
   const seen = new Set<string>();
   const folders: FolderRecord[] = [];
+  const snapshot = await buildAccessSnapshot(
+    env,
+    grants.map((grant) => grant.ownerId),
+  );
 
   for (const grant of grants) {
     if (grant.ownerId === user.id || isDriveRootPath(grant.folder)) {
@@ -635,16 +1332,18 @@ export async function listSharedFolders(
       grant.ownerId,
       grant.folder,
       user,
+      snapshot,
     );
     // resolveFolderAccess は非オーナーの grants を伏せるため、内部状態で判定する。
     if (
       !(
-        (await folderDiscoveryAllowed(
+        folderDiscoveryAllowedSnapshot(
           env,
           grant.ownerId,
           grant.folder,
           user,
-        )) && access.id
+          snapshot,
+        ) && access.id
       ) ||
       seen.has(access.id)
     ) {
@@ -669,6 +1368,10 @@ export async function listPublicSharedFolders(
   const grants = await listPublicFolderCandidates(env);
   const seen = new Set<string>();
   const folders: FolderRecord[] = [];
+  const snapshot = await buildAccessSnapshot(
+    env,
+    grants.map((grant) => grant.ownerId),
+  );
 
   for (const grant of grants) {
     if (isDriveRootPath(grant.folder)) {
@@ -679,6 +1382,7 @@ export async function listPublicSharedFolders(
       grant.ownerId,
       grant.folder,
       null,
+      snapshot,
     );
     if (
       !access.flags.canView ||
@@ -839,69 +1543,6 @@ export async function deleteFolderPolicy(
     .prepare("DELETE FROM folder_policies WHERE owner_id = ? AND folder = ?")
     .bind(ownerId, folder)
     .run();
-}
-
-export async function renameFolderTree(
-  env: Env,
-  ownerId: string,
-  from: string,
-  to: string,
-): Promise<void> {
-  if (!(from && to) || from === to) {
-    return;
-  }
-
-  const folderRows = await db(env)
-    .prepare("SELECT folder FROM folders WHERE owner_id = ?")
-    .bind(ownerId)
-    .all<{ folder: string }>();
-  const policyRows = await db(env)
-    .prepare("SELECT folder FROM folder_policies WHERE owner_id = ?")
-    .bind(ownerId)
-    .all<{ folder: string }>();
-  const grantRows = await db(env)
-    .prepare(
-      "SELECT id, target_key FROM access_grants WHERE owner_id = ? AND target_kind = 'folder'",
-    )
-    .bind(ownerId)
-    .all<{ id: string; target_key: string }>();
-
-  for (const row of folderRows.results ?? []) {
-    const next = rewriteFolderPrefix(row.folder, from, to);
-    if (next === null) {
-      continue;
-    }
-    await db(env)
-      .prepare(
-        "UPDATE folders SET folder = ? WHERE owner_id = ? AND folder = ?",
-      )
-      .bind(next, ownerId, row.folder)
-      .run();
-  }
-
-  for (const row of policyRows.results ?? []) {
-    const next = rewriteFolderPrefix(row.folder, from, to);
-    if (next === null) {
-      continue;
-    }
-    await db(env)
-      .prepare(
-        "UPDATE folder_policies SET folder = ? WHERE owner_id = ? AND folder = ?",
-      )
-      .bind(next, ownerId, row.folder)
-      .run();
-  }
-
-  for (const row of grantRows.results ?? []) {
-    const next = rewriteFolderPrefix(row.target_key, from, to);
-    if (next === null) {
-      continue;
-    }
-    await db(env)
-      .prepare("UPDATE access_grants SET target_key = ? WHERE id = ?")
-      .bind(next, row.id)
-      .run();
-  }
 }
 
 export async function deleteFolderTree(

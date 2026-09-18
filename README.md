@@ -61,6 +61,60 @@ Worker 単体で API だけ試す場合は `pnpm dev:worker` のみでよい。O
 
 URL はこのリポジトリ用の固定名。同じチェックアウトで `pnpm dev` と単独起動を重ねないこと。終了後も portless の共有プロキシは残る。他のプロジェクトでも使っていない場合のみ `pnpm exec portless proxy stop` で停止できる。
 
+## ブラウザテスト
+
+既存の Node.js テストとは別に、Playwright Test で実際の IndexedDB / OPFS と、キャッシュ閲覧・自動先読みの画面連携を検証する。
+
+```bash
+# pnpm install 後、初回または Playwright 更新時に実行
+pnpm --filter @miyulabmd/web test:browser:install
+
+pnpm --filter @miyulabmd/web test:browser
+# 個別のテストだけ実行する場合
+pnpm --filter @miyulabmd/web test:browser storage-platform.spec.ts
+# 本番ビルドの Service Worker・オフライン起動を検証する場合
+pnpm --filter @miyulabmd/web test:pwa
+```
+
+両コマンドは `apps/web/scripts/playwright.mjs` を通し、専用 Chromium を `apps/web/node_modules/.cache/playwright/` に保存・参照する。共有ブラウザキャッシュを使用せず、自動 GC も無効にする。通常の Chrome / Edge や他プロジェクトのブラウザに影響させないため、直接 `playwright install` を実行せず上記コマンドを使う。新しい worktree ではブラウザを別途インストールする。
+
+`test:browser` は `127.0.0.1:4174` で専用の Vite サーバーを自動起動・終了する。起動済みの別サーバーは再利用しない。ストレージの基盤テストは専用ページ、画面テストは実際のアプリとAPI fixtureを使い、Worker や実ログインを必要としない。
+
+`test:pwa` は本番ビルド後、`127.0.0.1:4175` の専用previewサーバーで、HTTP cacheに依存しないオフライン起動、SSR HTMLを保存しないこと、キャッシュ整理と更新待機などを検証する。SSR応答はテスト用HTTP fixtureであり、実際のCloudflare配信・認証・エッジキャッシュの検証を代替しない。開発用ViteではService Workerを登録しない。
+
+各テストは独立したブラウザコンテキストで実行する。失敗時のトレース等は `apps/web/test-results/` に保存され、Git 管理外となる。CI でブラウザテストを実行する場合も、専用ブラウザのインストールを先に行う。
+
+### オフライン実装候補のレビュー
+
+未採用の実装は、候補ディレクトリ内の `offline-cache.ts`、`note-read-session.ts` を直接編集して検証できる。同じディレクトリの追加 `.ts` ファイルも `src/lib/` の候補として扱う。
+
+UIの候補は、候補ディレクトリ配下の `src/` に実装と同じ階層の `.ts` / `.tsx` を置く
+（例：`src/components/layout/AppShell.tsx`）。同じ実装パスを指す候補の重複はエラーにする。
+
+```bash
+# リポジトリのルートで実行。候補ファイルはこのディレクトリ自体に保持する。
+node apps/web/scripts/check-offline-candidate.mjs review-artifacts/offline-candidate all
+# 個別の検証
+node apps/web/scripts/check-offline-candidate.mjs review-artifacts/offline-candidate browser user-cache-suspension.spec.ts
+node apps/web/scripts/check-offline-candidate.mjs review-artifacts/offline-candidate typecheck
+```
+
+このランナーは実装用の `src/` を変更・復元しない。ブラウザ検証は候補を Vite の読み込み時に差し替え、型チェックは候補と同じ内容を検証専用ツリーへ配置して行う。候補への書き戻しは行わず、検証前後で候補と元ソースが変わっていないことを確認する。候補の SHA-256 を出力するので、検証結果と併せて記録する。ブラウザは専用キャッシュを使用し、Vite は空きポートで起動する。検証専用ツリーは `apps/web/node_modules/.cache/offline-candidate/` 配下に作成し、終了時に削除する。
+
+`all` は候補の型チェック・Biomeと、ランナーに明示した基盤・画面テストを実行する。新しいspecはデフォルト一覧にも登録する。既存ユニットテストは別途実行する。レビュー完了までは候補ファイルを正本として保持し、実装用ファイルから候補へコピーし直さない。
+
+### 現在のオフライン対応範囲
+
+本番ビルドは共通の起動用資産を保存し、保存済みのノート・フォルダを閲覧専用で表示する。認証済みのアプリ起動時には、自分のMyDriveのフォルダとノート本文を順次先読みする。認証済み状態が維持されていれば、通信復帰・画面への復帰時、表示中の5分ごとの定期確認、同じ画面内のノート・フォルダAPI更新成功後に再確認を試み、短時間の重複通知をまとめる。非表示中の定期通知は省略する。通常の画面表示・編集は維持し、共有されているだけの他人のノート本文は自動先読みしない。ブラウザの保存容量や通信状況によって取得・保持できない項目があるため、全件保存やバックアップを保証しない。
+
+同じユーザーの背景先読みはWeb Locksでタブ間排他し、別タブが取得中ならその試行を省略する。Web Locksを利用できない環境では、背景先読みだけを省略し、通常閲覧とそのキャッシュ保存は維持する。
+
+認証済みのEditor読み取りと背景先読みは、同じページ内・同じ利用者・同じ要求IDの進行中ノートGETを共有する。各呼び出しの中断と結果は独立し、拒否世代が変わった後の読み取りは古い取得へ参加しない。完了済みのHTTP応答を保持するキャッシュではない。
+
+キャッシュ専用・利用者未確認モードでは、通信復帰や画面への復帰時にサーバーへ利用者を確認し直す。確認中はキャッシュの閲覧専用表示を維持し、保存済みIDだけで認証済みに切り替えない。別ユーザーと確認された場合は元ユーザーの表示を除外する。確認結果が同じキャッシュ利用者のままなら、選択中の文字などの閲覧状態も維持する。
+
+Yjsのサーバー保存確認後の通知、別タブの変更・認証変更検出、一覧・フォルダ・ホバー時の旧取得経路の統合、別名URL対応、添付画像、容量回収、フォルダHTTP拒否の接続などは継続実装中。既に認証済み・ゲストの画面を今回の復帰処理で再確認するものではない。仕様と実装済み範囲は区別し、最新の判断・検証は [意思決定台帳](docs/offline-pwa-decisions.md) を参照する。
+
 ## CI / デプロイ
 
 フォークや別アカウントでは、手元から対話スクリプトで Cloudflare（Access / Worker / D1 / R2）と GitHub Actions の Secrets / Variables を揃えられる。`wrangler.toml` は共通のままなので、upstream への追従でコンフリクトしにくい。

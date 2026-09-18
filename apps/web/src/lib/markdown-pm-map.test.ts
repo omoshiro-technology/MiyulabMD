@@ -91,14 +91,12 @@ test("list markers map to the item text", () => {
 });
 
 test("markdownEquivalent ignores youtube default attrs and shorthand", () => {
-  const source = "![youtube](https://www.youtube.com/watch?v=jNQXAC9IVRw)\n";
-  const editor =
-    ':::youtube {src="https://www.youtube.com/watch?v=jNQXAC9IVRw" width="640" height="360" start="0"} :::';
+  const url = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
+  const source = `![youtube](${url})\n`;
+  const editor = `:::youtube {src="${url}" width="640" height="360" start="0"} :::`;
   assert.equal(markdownEquivalent(source, editor), true);
-  assert.equal(
-    canonicalizeEditorMarkdown(editor),
-    ':::youtube {src="https://www.youtube.com/watch?v=jNQXAC9IVRw"} :::',
-  );
+  assert.equal(markdownEquivalent(source, url), true);
+  assert.equal(canonicalizeEditorMarkdown(editor), url);
 });
 
 test("markdownEquivalent keeps real text changes distinct", () => {

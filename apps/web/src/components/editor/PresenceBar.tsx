@@ -39,12 +39,22 @@ function readAwarenessState(
   return { color, displayName, userId: userId ?? displayName };
 }
 
-export function PresenceBar({ awareness }: Props) {
+/**
+ * awareness から自分以外のピア一覧を購読する。
+ * 「⋯」メニュー内の「共同編集中: N人」情報行でも使うため undefined を許容。
+ */
+export function useAwarenessPeers(
+  awareness: CollabAwareness | undefined,
+): Array<AwarenessUserState & { clientId: number }> {
   const [peers, setPeers] = useState<
     Array<AwarenessUserState & { clientId: number }>
   >([]);
 
   useEffect(() => {
+    if (!awareness) {
+      setPeers([]);
+      return;
+    }
     const sync = () => {
       const localClientId = awareness.clientID;
       const next: Array<AwarenessUserState & { clientId: number }> = [];
@@ -70,6 +80,12 @@ export function PresenceBar({ awareness }: Props) {
       awareness.off("change", sync);
     };
   }, [awareness]);
+
+  return peers;
+}
+
+export function PresenceBar({ awareness }: Props) {
+  const peers = useAwarenessPeers(awareness);
 
   if (peers.length === 0) {
     return null;

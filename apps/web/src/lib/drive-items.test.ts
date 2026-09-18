@@ -23,6 +23,7 @@ function note(
     alias: null,
     articleMeta: {},
     createdAt: 1,
+    editLocked: false,
     folder: "",
     folderId,
     id,

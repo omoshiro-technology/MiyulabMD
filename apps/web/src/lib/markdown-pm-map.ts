@@ -160,13 +160,19 @@ function imageBounds(
   };
 }
 
-function ogCardBounds(
+function standaloneEmbedBounds(
   markdown: string,
   idx: number,
   needle: string,
 ): { start: number; end: number } {
-  const fenceStart = markdown.lastIndexOf(":::ogCard", idx);
-  if (fenceStart >= 0 && !markdown.slice(fenceStart, idx).includes("\n\n")) {
+  let fenceStart = -1;
+  for (const marker of [":::ogCard", ":::youtube"]) {
+    const at = markdown.lastIndexOf(marker, idx);
+    if (at > fenceStart && !markdown.slice(at, idx).includes("\n\n")) {
+      fenceStart = at;
+    }
+  }
+  if (fenceStart >= 0) {
     const closer = markdown.indexOf(":::", idx + needle.length);
     return {
       end: closer >= 0 ? closer + 3 : idx + needle.length,
@@ -174,10 +180,12 @@ function ogCardBounds(
     };
   }
   if (idx > 0 && markdown[idx - 1] === "(") {
+    const bang = markdown.lastIndexOf("![", idx);
     const bracket = markdown.lastIndexOf("[", idx);
+    const start = bang >= 0 && bang === bracket - 1 ? bang : bracket;
     const close = markdown.indexOf(")", idx + needle.length);
-    if (bracket >= 0 && close >= 0) {
-      return { end: close + 1, start: bracket };
+    if (start >= 0 && close >= 0) {
+      return { end: close + 1, start };
     }
   }
   return { end: idx + needle.length, start: idx };
@@ -192,8 +200,8 @@ function atomBounds(
   if (name === "image") {
     return imageBounds(markdown, idx, needle);
   }
-  if (name === "ogCard") {
-    return ogCardBounds(markdown, idx, needle);
+  if (name === "ogCard" || name === "youtube") {
+    return standaloneEmbedBounds(markdown, idx, needle);
   }
   const start = markdown.lastIndexOf(":::", idx);
   const closer = markdown.indexOf(":::", idx + needle.length);

@@ -41,7 +41,10 @@ export const imageRoutes = new Elysia({ prefix: "/api/notes" })
     }
     if (result.kind === "denied") {
       set.status = result.status;
-      return { error: result.status === 401 ? "Unauthorized" : "Forbidden" };
+      return {
+        error:
+          result.code ?? (result.status === 401 ? "Unauthorized" : "Forbidden"),
+      };
     }
     if (result.kind === "bad_request") {
       set.status = 400;

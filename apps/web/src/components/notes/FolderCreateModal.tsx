@@ -1,9 +1,10 @@
+import type { SchemeSuggestion } from "@miyulabmd/shared";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../ui/Button.tsx";
 import { Field } from "../ui/Field.tsx";
 import { Input } from "../ui/Input.tsx";
 import { Modal, ModalFooter, ModalHeader } from "../ui/Modal.tsx";
-import { ErrorText } from "../ui/Text.tsx";
+import { ErrorText, MutedText } from "../ui/Text.tsx";
 
 type Props = {
   title?: string;
@@ -12,6 +13,8 @@ type Props = {
   initialName?: string;
   busy?: boolean;
   error?: string | null;
+  /** Next-ID hint when the parent folder declares a naming scheme. */
+  suggestion?: SchemeSuggestion | null;
   onSubmit: (name: string) => void;
   onClose: () => void;
 };
@@ -23,6 +26,7 @@ export function FolderCreateModal({
   initialName = "",
   busy = false,
   error,
+  suggestion,
   onSubmit,
   onClose,
 }: Props) {
@@ -56,7 +60,7 @@ export function FolderCreateModal({
       onSubmit={(event) => {
         event.preventDefault();
         const next = name.trim();
-        if (!next) {
+        if (!(next || suggestion)) {
           setLocalError("フォルダ名を入力してください。");
           return;
         }
@@ -72,18 +76,32 @@ export function FolderCreateModal({
             setName(event.target.value);
             setLocalError(null);
           }}
-          placeholder="例: work"
+          placeholder={
+            suggestion ? `${suggestion.schemeId} （タイトル）` : "例: work"
+          }
           ref={inputRef}
           type="text"
           value={name}
         />
       </Field>
+      {suggestion && (
+        <MutedText className="text-xs">
+          命名規則が有効です — 次の番号は{" "}
+          <code className="font-mono">{suggestion.schemeId}</code>
+          です。タイトルだけ入力すると「{suggestion.schemeId}
+          タイトル」で作成されます。
+        </MutedText>
+      )}
       {(localError || error) && <ErrorText>{localError ?? error}</ErrorText>}
       <ModalFooter>
         <Button disabled={busy} onClick={close} variant="ghost">
           キャンセル
         </Button>
-        <Button disabled={busy || !name.trim()} type="submit" variant="accent">
+        <Button
+          disabled={busy || !(name.trim() || suggestion)}
+          type="submit"
+          variant="accent"
+        >
           {busy ? busyLabel : submitLabel}
         </Button>
       </ModalFooter>

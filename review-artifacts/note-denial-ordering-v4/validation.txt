@@ -1,0 +1,5 @@
+Implementation candidate validation:
+baseline hashes verified before edits: offline-cache ee53bce82df04d6a75f0caeb8ad552fb425fb1a3c659bd24d1972726bb0f122d; note-read-session 8d192d9eef9fb22c7ddd6c378e9754326d645adb9eb92e5bcc6cf33a3e826d5b.
+candidate browser/typecheck not run: pnpm dependencies absent (pnpm ... exec tsc --noEmit exited 1, tsc not found).
+git diff --check: exit 0.
+source restoration verified by hashes above; candidate hashes are in hashmanifest.txt.

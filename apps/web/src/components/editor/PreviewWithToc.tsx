@@ -1,10 +1,13 @@
+import type { WikiLinkMap } from "@miyulabmd/markdown";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "../../lib/cn.ts";
 import {
   extractNoteToc,
+  headingAnchorForLine,
   shouldShowPreviewToc,
   type TocEntry,
 } from "../../lib/note-toc.ts";
+import type { ImageViewContext } from "../../lib/preview-images.ts";
 import {
   documentColumnWidthClass,
   documentViewColumnClass,
@@ -18,6 +21,11 @@ type Props = {
   scrollRatio?: number;
   onScrollRatio?: (ratio: number) => void;
   documentScroll?: boolean;
+  taskNoteId?: string;
+  imageContext?: ImageViewContext;
+  /** 1-based source line to scroll toward (jumps to the heading above it). */
+  focusLine?: number;
+  wikiLinks?: WikiLinkMap;
 };
 
 function TocNav({ entries }: { entries: TocEntry[] }) {
@@ -65,6 +73,10 @@ export function PreviewWithToc({
   scrollRatio,
   onScrollRatio,
   documentScroll = true,
+  taskNoteId,
+  imageContext,
+  focusLine,
+  wikiLinks,
 }: Props) {
   const layoutRef = useRef<HTMLDivElement>(null);
   const [showToc, setShowToc] = useState(false);
@@ -73,6 +85,22 @@ export function PreviewWithToc({
     () => extractNoteToc(deferredMarkdown),
     [deferredMarkdown],
   );
+
+  useEffect(() => {
+    if (focusLine == null || entries.length === 0) {
+      return;
+    }
+    const anchor = headingAnchorForLine(entries, focusLine);
+    const frame = window.requestAnimationFrame(() => {
+      const target = anchor ? document.getElementById(anchor) : null;
+      if (target) {
+        target.scrollIntoView({ block: "start" });
+      } else {
+        window.scrollTo({ top: 0 });
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [entries, focusLine]);
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 1200px)");
@@ -109,9 +137,12 @@ export function PreviewWithToc({
         <MarkdownPreview
           className={columnClass}
           documentScroll={documentScroll}
+          imageContext={imageContext}
           markdown={markdown}
           onScrollRatio={onScrollRatio}
           scrollRatio={scrollRatio}
+          taskNoteId={taskNoteId}
+          wikiLinks={wikiLinks}
         />
       </div>
       {showToc && entries.length > 0 && (

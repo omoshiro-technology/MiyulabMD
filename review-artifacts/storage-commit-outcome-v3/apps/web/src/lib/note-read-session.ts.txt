@@ -1,0 +1,113 @@
+import type { Note } from "@miyulabmd/shared";
+
+import { type ApiResult, fetchNote } from "./api.ts";
+import { openOfflineCache } from "./offline-cache.ts";
+import type { ViewerContext } from "./viewer-context.ts";
+
+export type NoteReadResult =
+  | {
+      ok: true;
+      data: Note;
+      viewer: ViewerContext;
+      source: "network" | "cache";
+      cachedAt: number | null;
+    }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      viewer: ViewerContext;
+      source: "network";
+      cachedAt: null;
+    };
+
+export type NoteReadSession = {
+  read(id: string): Promise<NoteReadResult>;
+  dispose(): void;
+};
+
+function snapshotViewer(viewer: ViewerContext): ViewerContext {
+  return {
+    cacheViewerId: viewer.cacheViewerId,
+    mode: viewer.mode,
+    user: viewer.user
+      ? {
+          displayName: viewer.user.displayName,
+          email: viewer.user.email,
+          id: viewer.user.id,
+        }
+      : null,
+  };
+}
+
+export function createNoteReadSession(viewer: ViewerContext): NoteReadSession {
+  const capturedViewer = snapshotViewer(viewer);
+  let cachePromise:
+    | Promise<Awaited<ReturnType<typeof openOfflineCache>> | null>
+    | undefined;
+  let disposed = false;
+  let cache: Awaited<ReturnType<typeof openOfflineCache>> | null = null;
+
+  const getCache = () => {
+    if (!cachePromise) {
+      cachePromise = capturedViewer.cacheViewerId
+        ? openOfflineCache({ userId: capturedViewer.cacheViewerId }).catch(
+            () => null,
+          )
+        : Promise.resolve(null);
+    }
+    return cachePromise;
+  };
+
+  return {
+    dispose() {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      cache?.close();
+      cache = null;
+    },
+
+    async read(id) {
+      const result: ApiResult<Note> = await fetchNote(id);
+      if (!result.ok) {
+        return {
+          cachedAt: null,
+          error: result.error,
+          ok: false,
+          source: "network",
+          status: result.status,
+          viewer: snapshotViewer(capturedViewer),
+        };
+      }
+
+      if (disposed) {
+        return {
+          cachedAt: null,
+          data: result.data,
+          ok: true,
+          source: "network",
+          viewer: snapshotViewer(capturedViewer),
+        };
+      }
+      const openedCache = await getCache();
+      if (openedCache) {
+        cache = openedCache;
+        try {
+          await openedCache.putNote(result.data);
+        } catch {
+          // Valid online data must not depend on offline storage.
+        }
+      }
+
+      return {
+        cachedAt: null,
+        data: result.data,
+        ok: true,
+        source: "network",
+        viewer: snapshotViewer(capturedViewer),
+      };
+    },
+  };
+}

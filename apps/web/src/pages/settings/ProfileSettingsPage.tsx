@@ -1,11 +1,13 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { useOutletContext } from "react-router";
 import type { AppShellContext } from "../../components/layout/AppShellContext.ts";
+import { ConfirmDialog } from "../../components/notes/ConfirmDialog.tsx";
 import { Button } from "../../components/ui/Button.tsx";
 import { Field, Row } from "../../components/ui/Field.tsx";
 import { Input } from "../../components/ui/Input.tsx";
 import { ErrorText, MutedText } from "../../components/ui/Text.tsx";
 import { updateProfile } from "../../lib/api.ts";
+import { clearOfflineCacheDevice } from "../../lib/offline-cache.ts";
 
 export function ProfileSettingsPage() {
   const { user, setUser } = useOutletContext<AppShellContext>();
@@ -13,6 +15,10 @@ export function ProfileSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [cleared, setCleared] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
     setDisplayName(user?.displayName ?? "");
@@ -69,6 +75,46 @@ export function ProfileSettingsPage() {
         </form>
       ) : (
         <ErrorText>表示名を設定するにはログインしてください。</ErrorText>
+      )}
+
+      <h3 className="text-[1.1em] font-bold">オフラインキャッシュ</h3>
+      <p>
+        オフライン閲覧用にこの端末へ保存されたノート・フォルダ・一覧・画像を、すべてのアカウント分まとめて削除します。サーバー上のデータとアプリの起動資産は残ります。ほかのタブで進行中のキャッシュ処理も無効になります。
+      </p>
+      <Button
+        onClick={() => {
+          setClearError(null);
+          setConfirmOpen(true);
+        }}
+        variant="danger"
+      >
+        この端末のキャッシュを削除
+      </Button>
+      {cleared && <MutedText className="mt-1">削除しました。</MutedText>}
+      {confirmOpen && (
+        <ConfirmDialog
+          busy={clearing}
+          confirmLabel="削除"
+          error={clearError}
+          message="この端末に保存されたオフラインキャッシュをすべて削除します。元に戻せません。"
+          onClose={() => setConfirmOpen(false)}
+          onConfirm={() => {
+            setClearing(true);
+            setClearError(null);
+            void clearOfflineCacheDevice()
+              .then(() => {
+                setConfirmOpen(false);
+                setCleared(true);
+              })
+              .catch(() => {
+                setClearError(
+                  "削除を完了できませんでした。もう一度実行してください。",
+                );
+              })
+              .finally(() => setClearing(false));
+          }}
+          title="端末のキャッシュを削除"
+        />
       )}
     </section>
   );

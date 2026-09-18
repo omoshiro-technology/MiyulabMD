@@ -1,0 +1,11 @@
+Candidate v5 validation:
+typecheck: pnpm --filter @miyulabmd/web typecheck (exit 0).
+browser baseline suite: 24 passed (exit 0).
+Added final generation guard after fetchWithFallback, covering cached and network publication.
+Parent supplied cached-read ordering test was not added to source tests; parent should run it against this snapshot.
+pnpm install --frozen-lockfile: exit 0.
+pnpm --filter @miyulabmd/web test:browser:install: exit 0.
+pnpm --filter @miyulabmd/web test: 117 passed, exit 0.
+pnpm exec biome check apps/web/src/lib/offline-cache.ts apps/web/src/lib/note-read-session.ts: exit 0.
+git diff --check: exit 0.
+Live source restoration verified after candidate validation: offline-cache ee53bce82df04d6a75f0caeb8ad552fb425fb1a3c659bd24d1972726bb0f122d; note-read-session 8d192d9eef9fb22c7ddd6c378e9754326d645adb9eb92e5bcc6cf33a3e826d5b.

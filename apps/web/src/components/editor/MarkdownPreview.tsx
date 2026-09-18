@@ -1,6 +1,13 @@
+import type { WikiLinkMap } from "@miyulabmd/markdown";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "../../lib/cn.ts";
 import { loadOgCards, renderMarkdownHtml } from "../../lib/markdown.ts";
+import {
+  type ImageViewContext,
+  resolvePreviewImages,
+  usePreviewImages,
+} from "../../lib/preview-images.ts";
+import { useTaskCheckboxes } from "../../lib/task-checkboxes.ts";
 import {
   documentPaneScrollClass,
   documentProseClass,
@@ -13,6 +20,10 @@ type Props = {
   onScrollRatio?: (ratio: number) => void;
   className?: string;
   documentScroll?: boolean;
+  taskNoteId?: string;
+  imageContext?: ImageViewContext;
+  /** Resolved [[wiki link]] targets → note id; undefined keeps them literal. */
+  wikiLinks?: WikiLinkMap;
 };
 
 function scrollRatioFrom(el: HTMLElement): number {
@@ -26,21 +37,29 @@ export function MarkdownPreview({
   onScrollRatio,
   className,
   documentScroll = false,
+  taskNoteId,
+  imageContext,
+  wikiLinks,
 }: Props) {
+  const articleRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const applyingScroll = useRef(false);
   const deferredMarkdown = useDeferredValue(markdown);
+  const images = usePreviewImages(deferredMarkdown, imageContext);
   const [enhanced, setEnhanced] = useState<{ md: string; html: string } | null>(
     null,
   );
 
   const rendered = useMemo(() => {
     try {
-      return { error: null, html: renderMarkdownHtml(deferredMarkdown) };
+      return {
+        error: null,
+        html: renderMarkdownHtml(deferredMarkdown, undefined, wikiLinks),
+      };
     } catch {
       return { error: "プレビューの生成に失敗しました。", html: "" };
     }
-  }, [deferredMarkdown]);
+  }, [deferredMarkdown, wikiLinks]);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,18 +68,31 @@ export function MarkdownPreview({
         return;
       }
       setEnhanced({
-        html: renderMarkdownHtml(markdown, cards),
+        html: renderMarkdownHtml(markdown, cards, wikiLinks),
         md: markdown,
       });
     });
     return () => {
       cancelled = true;
     };
-  }, [markdown]);
+  }, [markdown, wikiLinks]);
 
-  const html = enhanced?.md === markdown ? enhanced.html : rendered.html;
+  const sourceHtml = enhanced?.md === markdown ? enhanced.html : rendered.html;
+  const html = useMemo(
+    () => resolvePreviewImages(sourceHtml, images),
+    [sourceHtml, images],
+  );
+  // Keep React from replacing imperatively updated checkboxes on unrelated renders.
+  const innerHtml = useMemo(() => ({ __html: html }), [html]);
   const error = rendered.error;
+  const taskUpdates = useTaskCheckboxes(
+    articleRef,
+    html,
+    deferredMarkdown,
+    taskNoteId,
+  );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reapply the scroll ratio when rendered content changes height.
   useEffect(() => {
     if (documentScroll) {
       return;
@@ -118,11 +150,38 @@ export function MarkdownPreview({
   }
 
   const article = (
-    <article
-      className={columnClass}
-      // HTML は rehype-sanitize 済み。
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <>
+      <article
+        className={columnClass}
+        // HTML is sanitized before view-owned image URL resolution.
+        dangerouslySetInnerHTML={innerHtml}
+        ref={articleRef}
+      />
+      {taskUpdates.error && (
+        <div
+          className="fixed right-4 bottom-4 z-50 max-w-sm rounded-lg border border-border bg-surface p-4 text-ink shadow-lg"
+          role="alert"
+        >
+          <p className="m-0 mb-3">{taskUpdates.error}</p>
+          <div className="flex justify-end gap-4">
+            <button
+              className="cursor-pointer text-muted"
+              onClick={taskUpdates.dismissError}
+              type="button"
+            >
+              閉じる
+            </button>
+            <button
+              className="cursor-pointer text-accent"
+              onClick={() => window.location.reload()}
+              type="button"
+            >
+              再読み込み
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 
   if (documentScroll) {

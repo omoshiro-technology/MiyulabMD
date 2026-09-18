@@ -34,7 +34,9 @@ export function McpSetupHelp({ origin, token, tokenName, onClose }: Props) {
         を発行しました。トークンはこの画面で一度だけ表示されます。
       </p>
       <MutedText className="mt-2">
-        使うクライアントを選ぶと、貼り付け用の設定が出ます。
+        使うクライアントを選ぶと、貼り付け用の設定が出ます。ノートのブラウザ URL
+        は <code className="font-mono">{"/n/{id}"}</code>（UUID）です。
+        <code className="font-mono">{"/{shortId}"}</code> では開けません。
       </MutedText>
 
       <div className="mt-4 grid gap-3">
