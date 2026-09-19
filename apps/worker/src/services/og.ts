@@ -1,8 +1,9 @@
 import {
-  isBlockedHost,
+  fetchOgTarget,
+  isBlockedOgUrl,
+  OG_MAX_BYTES,
   OG_TARGET_HEADER,
   type OgOutbound,
-  ogRequestInit,
 } from "../og-fetch-shared.ts";
 
 export type OgPreview = {
@@ -14,7 +15,6 @@ export type OgPreview = {
 };
 
 const FETCH_TIMEOUT_MS = 8000;
-const MAX_BYTES = 512_000;
 
 export const OG_CACHE_CONTROL = "public, max-age=300, s-maxage=3600";
 
@@ -88,20 +88,17 @@ export function parseOgHtml(html: string, baseUrl: string): OgPreview {
   };
 }
 
-async function readHtmlPrefix(
-  response: Response,
-  maxBytes: number,
-): Promise<string> {
+async function readHtmlPrefix(response: Response): Promise<string> {
   const body = response.body;
   if (!body) {
-    return (await response.text()).slice(0, maxBytes);
+    return (await response.text()).slice(0, OG_MAX_BYTES);
   }
 
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let html = "";
   try {
-    while (html.length < maxBytes) {
+    while (html.length < OG_MAX_BYTES) {
       const { done, value } = await reader.read();
       if (done) {
         break;
@@ -118,7 +115,7 @@ async function readHtmlPrefix(
       // ignore
     }
   }
-  return html.slice(0, maxBytes);
+  return html.slice(0, OG_MAX_BYTES);
 }
 
 export function ogCacheKey(origin: string, rawUrl: string): Request | null {
@@ -191,20 +188,21 @@ export async function peekOgCards(
 }
 
 async function fetchHtml(
-  url: string,
-  init: RequestInit,
+  url: URL,
+  signal: AbortSignal,
   outbound?: OgOutbound,
 ): Promise<Response> {
   if (outbound) {
     try {
-      const headers = new Headers(init.headers);
-      headers.set(OG_TARGET_HEADER, url);
+      const headers = new Headers();
+      headers.set(OG_TARGET_HEADER, url.toString());
       const viaOutbound = await outbound.fetch("https://og-fetch.internal/", {
         headers,
-        method: init.method,
-        redirect: init.redirect,
+        method: "GET",
+        redirect: "manual",
+        signal,
       });
-      if (viaOutbound.ok) {
+      if (viaOutbound.ok || viaOutbound.status < 500) {
         return viaOutbound;
       }
     } catch {
@@ -212,7 +210,7 @@ async function fetchHtml(
       // Fall through to the runtime fetch (works on workers.dev / local).
     }
   }
-  return fetch(url, init);
+  return fetchOgTarget(url, fetch, signal);
 }
 
 export async function fetchOgPreview(
@@ -228,22 +226,21 @@ export async function fetchOgPreview(
   if (target.protocol !== "http:" && target.protocol !== "https:") {
     return { error: "unsupported protocol", status: 400 };
   }
-  if (isBlockedHost(target.hostname)) {
+  if (isBlockedOgUrl(target)) {
     return { error: "blocked host", status: 400 };
   }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const response = await fetchHtml(
-      target.toString(),
-      ogRequestInit(controller.signal),
-      outbound,
-    );
+    const response = await fetchHtml(target, controller.signal, outbound);
+    if (response.status === 400) {
+      return { error: "blocked host", status: 400 };
+    }
     if (!response.ok) {
       return { error: "fetch failed", status: 502 };
     }
-    const html = await readHtmlPrefix(response, MAX_BYTES);
+    const html = await readHtmlPrefix(response);
     return parseOgHtml(html, target.toString());
   } catch {
     return { error: "fetch failed", status: 502 };

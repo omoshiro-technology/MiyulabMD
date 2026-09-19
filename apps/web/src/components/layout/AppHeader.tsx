@@ -76,6 +76,16 @@ export function AppHeader({
         >
           MiyulabMD
         </Link>
+        {onOpenSearch && (
+          <IconButton
+            aria-label="検索 (Ctrl+K)"
+            onClick={onOpenSearch}
+            title="検索 (Ctrl+K)"
+            variant="ghost"
+          >
+            <SearchIcon />
+          </IconButton>
+        )}
         {offline && <OfflineStatusBadge />}
       </div>
       {actions && (
@@ -89,17 +99,6 @@ export function AppHeader({
           actions ? "col-start-3" : "col-start-2",
         )}
       >
-        {onOpenSearch && (
-          <IconButton
-            aria-label="検索 (Ctrl+K)"
-            className="[[data-layout=editor]_&]:max-[640px]:hidden"
-            onClick={onOpenSearch}
-            title="検索 (Ctrl+K)"
-            variant="ghost"
-          >
-            <SearchIcon />
-          </IconButton>
-        )}
         <SitePublishButton folder={folder} user={user} />
         {end}
         {loading ? (

@@ -1,4 +1,5 @@
 name = "miyulabmd-og-fetch"
 main = "src/og-fetch-worker.ts"
 compatibility_date = "2026-08-01"
-workers_dev = true
+# Binding-only. A public workers.dev URL turned this Worker into an open proxy.
+workers_dev = false
